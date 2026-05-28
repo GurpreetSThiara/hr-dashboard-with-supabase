@@ -1,75 +1,88 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  { auth: { persistSession: false } }
-);
+import { withPgClient } from '@/lib/pgClient';
+import { getServerSupabase } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = parseInt(searchParams.get('limit') || '50');
     const offset = (page - 1) * limit;
 
-    let query = supabase
-      .from('leave_requests')
-      .select('*', { count: 'exact' });
+    const result = await withPgClient(async (client) => {
+      let countText = 'SELECT COUNT(*) FROM leave_requests';
+      let dataText = 'SELECT * FROM leave_requests';
+      const values: any[] = [];
 
-    if (status) {
-      query = query.eq('status', status);
-    }
+      if (status) {
+        countText += ' WHERE status = $1';
+        dataText  += ' WHERE status = $1';
+        values.push(status);
+      }
 
-    const { data, error, count } = await query
-      .range(offset, offset + limit - 1)
-      .order('created_at', { ascending: false });
+      dataText += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
-    if (error) throw error;
+      const [countRes, dataRes] = await Promise.all([
+        client.query(countText, values),
+        client.query(dataText, values),
+      ]);
 
-    return NextResponse.json({
-      data,
-      pagination: {
-        page,
-        limit,
-        total: count || 0,
-        pages: Math.ceil((count || 0) / limit),
-      },
+      return {
+        data: dataRes.rows,
+        pagination: {
+          page,
+          limit,
+          total: parseInt(countRes.rows[0].count),
+          pages: Math.ceil(parseInt(countRes.rows[0].count) / limit),
+        },
+      };
     });
+
+    return NextResponse.json(result);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const conn = getServerSupabase();
+    let userEmail: string | null = null;
+
+    if (conn) {
+      const { data: { session } } = await conn.client.auth.getSession();
+      if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      userEmail = session.user.email ?? null;
     }
 
     const body = await request.json();
-    const { data, error } = await supabase
-      .from('leave_requests')
-      .insert([{ ...body, status: 'pending' }])
-      .select()
-      .single();
+    const {
+      employee_id, employee_name, employee_email, leave_type,
+      start_date, end_date, reason, days_count,
+    } = body;
 
-    if (error) throw error;
+    if (!employee_name || !leave_type || !start_date || !end_date) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
 
-    // Log activity
-    await supabase.from('activity_feed').insert([{
-      user_email: session.user.email,
-      action: 'submitted_leave',
-      description: `Submitted leave request: ${body.reason}`,
-      target_id: data.id,
-      target_type: 'leave_request',
-    }]);
+    const data = await withPgClient(async (client) => {
+      const res = await client.query(
+        `INSERT INTO leave_requests
+           (employee_id, employee_name, employee_email, leave_type, start_date, end_date,
+            reason, days_count, status, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',NOW(),NOW())
+         RETURNING *`,
+        [employee_id || null, employee_name, employee_email || userEmail || null,
+         leave_type, start_date, end_date, reason || null, days_count || 1]
+      );
+      return res.rows[0];
+    });
 
     return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

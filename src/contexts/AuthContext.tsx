@@ -1,179 +1,213 @@
-
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-const AuthContext = createContext<any>({});
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  tier: number;
+  department: string | null;
+}
+
+interface AuthContextValue {
+  user: any | null;
+  profile: UserProfile | null;
+  session: any | null;
+  loading: boolean;
+  role: string;
+  tier: number;
+  customPermissions: Record<string, number[]> | null;
+  refreshPermissions: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<any>;
+  signUp: (email: string, password: string, metadata?: any) => Promise<any>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };
 
-// Role tier definitions
 const ROLE_TIER_MAP: Record<string, number> = {
-  'Super Admin': 1,
-  'Owner': 2,
-  'Admin': 3,
-  'HR Admin': 4,
-  'HR Manager': 5,
-  'HR Executive': 6,
-  'Recruiter': 7,
-  'Payroll Manager': 8,
-  'Finance': 9,
-  'Compliance': 10,
-  'IT Ops': 11,
-  'Director': 12,
-  'Manager': 13,
-  'Team Lead': 14,
-  'Employee': 15,
-  'Contractor': 16,
-  'Intern': 17,
-  'Read-Only User': 18,
+  'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
+  'HR Executive': 6, 'Recruiter': 7, 'Payroll Manager': 8, 'Finance': 9,
+  'Compliance': 10, 'IT Ops': 11, 'Director': 12, 'Manager': 13,
+  'Team Lead': 14, 'Employee': 15, 'Contractor': 16, 'Intern': 17, 'Read-Only User': 18,
 };
+
+const LS_USER_KEY = 'hrcore_user';
+
+function clearLegacyLocalStorage() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('hrcore_user');
+  localStorage.removeItem('hrcore_token');
+  localStorage.removeItem('hrcore_refresh');
+}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  // Initialize from localStorage synchronously (if available)
-  let initialRole = 'Employee';
-  let initialTier = 15;
-  let initialUser = null;
+  const supabase = createClient();
 
+  // Initialize from localStorage cache (fast path before Supabase responds)
+  let initialProfile: UserProfile | null = null;
   if (typeof window !== 'undefined') {
-    const storedUser = localStorage.getItem('hrcore_user');
-    if (storedUser) {
-      try {
-        initialUser = JSON.parse(storedUser);
-        initialRole = initialUser.role || 'Employee';
-        initialTier = ROLE_TIER_MAP[initialRole] || 15;
-      } catch (e) {
-        // Failed to parse stored user, will fall back to Supabase
-      }
+    const stored = localStorage.getItem(LS_USER_KEY);
+    if (stored) {
+      try { initialProfile = JSON.parse(stored); } catch {}
     }
   }
 
-  const [user, setUser] = useState<any>(initialUser);
+  const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
   const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(!initialUser);
-  const [role, setRole] = useState<string>(initialRole);
-  const [tier, setTier] = useState<number>(initialTier);
-  const supabase = createClient();
+  const [loading, setLoading] = useState(true);
+  const [customPermissions, setCustomPermissions] = useState<Record<string, number[]> | null>(null);
 
-  useEffect(() => {
-    // If already loaded from localStorage, just set loading to false and return
-    if (initialUser) {
-      setLoading(false);
-      return;
+  // Helper: derive role + tier from profile / metadata / fallback
+  const role = profile?.role || user?.user_metadata?.role || 'Employee';
+  const tier = profile?.tier ?? user?.user_metadata?.tier ?? ROLE_TIER_MAP[role] ?? 15;
+
+  // ── Profile loader ─────────────────────────────────────────────────────────
+  const fetchProfile = useCallback(async (userId: string, userEmail?: string): Promise<UserProfile | null> => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, email, full_name, role, tier, department')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      // Fallback to a minimal profile so the app still works for users that
+      // haven't been added to the public.users table yet
+      return {
+        id: userId,
+        email: userEmail || '',
+        full_name: null,
+        role: 'Employee',
+        tier: 15,
+        department: null,
+      };
     }
-
-    // Fall back to Supabase session if not in localStorage
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // Extract role and tier from user metadata
-      if (session?.user) {
-        const userRole = session.user.user_metadata?.role || 'Employee';
-        setRole(userRole);
-        setTier(ROLE_TIER_MAP[userRole] || 15);
-      }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // Extract role and tier from user metadata
-      if (session?.user) {
-        const userRole = session.user.user_metadata?.role || 'Employee';
-        setRole(userRole);
-        setTier(ROLE_TIER_MAP[userRole] || 15);
-      } else {
-        setRole('Employee');
-        setTier(15);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return data as UserProfile;
   }, []);
 
-  // Email/Password Sign Up
-  const signUp = async (email: string, password: string, metadata = {}) => {
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) return;
+    const p = await fetchProfile(user.id, user.email);
+    setProfile(p);
+    if (typeof window !== 'undefined' && p) {
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(p));
+    }
+  }, [user?.id, user?.email, fetchProfile]);
+
+  // ── Permission matrix loader ───────────────────────────────────────────────
+  const loadPermissions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/role-permissions');
+      if (!res.ok) return;
+      const data = await res.json();
+      setCustomPermissions(data.isDefault ? null : data.matrix);
+    } catch {
+      // Non-fatal — runtime falls back to hardcoded permissions
+    }
+  }, []);
+
+  // ── Initial session + auth state listener ──────────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrap(currentSession: any) {
+      if (!mounted) return;
+      setSession(currentSession);
+      const currentUser = currentSession?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        const p = await fetchProfile(currentUser.id, currentUser.email);
+        if (mounted) {
+          setProfile(p);
+          if (typeof window !== 'undefined' && p) {
+            localStorage.setItem(LS_USER_KEY, JSON.stringify(p));
+          }
+        }
+      } else {
+        setProfile(null);
+        clearLegacyLocalStorage();
+      }
+      if (mounted) setLoading(false);
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      bootstrap(session);
+      loadPermissions();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      bootstrap(session);
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        loadPermissions();
+      }
+      if (event === 'SIGNED_OUT') {
+        clearLegacyLocalStorage();
+      }
+    });
+
+    return () => { mounted = false; subscription.unsubscribe(); };
+  }, [fetchProfile, loadPermissions]);
+
+  // ── Auth methods ───────────────────────────────────────────────────────────
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    // Profile + permissions will be loaded by onAuthStateChange
+    return data;
+  };
+
+  const signUp = async (email: string, password: string, metadata: any = {}) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          full_name: metadata?.fullName || '',
-          avatar_url: metadata?.avatarUrl || ''
+          full_name: metadata.fullName || '',
+          avatar_url: metadata.avatarUrl || '',
         },
-        emailRedirectTo: undefined
-      }
+        emailRedirectTo: undefined,
+      },
     });
     if (error) throw error;
     return data;
   };
 
-  // Email/Password Sign In
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-    if (error) throw error;
-    return data;
-  };
-
-  // Sign Out
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try { await supabase.auth.signOut(); } catch {}
+    clearLegacyLocalStorage();
+    setUser(null);
+    setProfile(null);
+    setSession(null);
+    if (typeof window !== 'undefined') {
+      window.location.href = '/sign-up-login-screen';
+    }
   };
 
-  // Get Current User
-  const getCurrentUser = async () => {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    return user;
-  };
-
-  // Check if Email is Verified
-  const isEmailVerified = () => {
-    return user?.email_confirmed_at !== null;
-  };
-
-  // Get User Profile from Database
-  const getUserProfile = async () => {
-    if (!user) return null;
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    if (error) throw error;
-    return data;
-  };
-
-  const value = {
+  const value: AuthContextValue = {
     user,
+    profile,
     session,
     loading,
     role,
     tier,
-    signUp,
+    customPermissions,
+    refreshPermissions: loadPermissions,
+    refreshProfile,
     signIn,
+    signUp,
     signOut,
-    getCurrentUser,
-    isEmailVerified,
-    getUserProfile
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

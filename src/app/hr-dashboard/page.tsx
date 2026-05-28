@@ -7,7 +7,7 @@ import DashboardComplianceBar from './components/DashboardComplianceBar';
 
 export default function HRDashboardPage() {
   return (
-    <AppLayout pageTitle="HR Dashboard" breadcrumb="Overview">
+    <AppLayout pageTitle="HR Dashboard" breadcrumb="Overview" requiredPermission="view_dashboard">
       <DashboardComplianceBar />
       <DashboardBentoGrid />
       <div className="mt-6 grid grid-cols-1 xl:grid-cols-3 gap-6">

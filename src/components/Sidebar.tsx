@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
-import { useRoleBasedAccess } from '@/lib/useRoleBasedAccess';
+import { useRoleBasedAccess, Permission } from '@/lib/useRoleBasedAccess';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface NavItem {
   id: string;
@@ -22,15 +23,14 @@ interface SidebarProps {
 }
 
 interface NavItemWithRole extends NavItem {
-  requiredTier?: number; // 0 = all, 1-18 = specific tier or below
+  requiredPermission?: Permission;
 }
 
 const NAV_ITEMS: NavItemWithRole[] = [
-  // WORKING FEATURES ONLY - requiredTier = maximum tier allowed to view (1 = Super Admin only, 18 = everyone)
-  { id: 'nav-dashboard', label: 'HR Dashboard', icon: 'ChartBarSquareIcon', href: '/hr-dashboard', section: 'OVERVIEW', requiredTier: 18 },
-  { id: 'nav-employees', label: 'Employees', icon: 'UsersIcon', href: '/employee-management', badge: 3, section: 'PEOPLE', requiredTier: 15 },
-  { id: 'nav-leave', label: 'Leave & Attendance', icon: 'CalendarDaysIcon', href: '/leave-attendance', badge: 8, section: 'OPERATIONS', requiredTier: 18 },
-  { id: 'nav-admin', label: 'Admin Management', icon: 'Cog6ToothIcon', href: '/admin', section: 'SYSTEM', requiredTier: 3 },
+  { id: 'nav-dashboard', label: 'HR Dashboard',       icon: 'ChartBarSquareIcon', href: '/hr-dashboard',         section: 'OVERVIEW',   requiredPermission: 'view_dashboard'  },
+  { id: 'nav-employees', label: 'Employees',          icon: 'UsersIcon',          href: '/employee-management',  section: 'PEOPLE',     requiredPermission: 'view_employees'  },
+  { id: 'nav-leave',     label: 'Leave & Attendance', icon: 'CalendarDaysIcon',   href: '/leave-attendance',     section: 'OPERATIONS', requiredPermission: 'view_leaves'     },
+  { id: 'nav-admin',     label: 'Admin Management',   icon: 'Cog6ToothIcon',      href: '/admin',                section: 'SYSTEM',     requiredPermission: 'admin_panel'     },
   
   // COMMENTED OUT FOR FUTURE USE
   // { id: 'nav-onboarding', label: 'Onboarding', icon: 'ClipboardDocumentCheckIcon', href: '/hr-dashboard', badge: 5, section: 'PEOPLE', requiredTier: 7 },
@@ -48,20 +48,39 @@ const NAV_ITEMS: NavItemWithRole[] = [
 const SECTIONS = ['OVERVIEW', 'PEOPLE', 'OPERATIONS', 'SYSTEM'];
 // REMOVED: 'COMPANY', 'COMPLIANCE' (for future features)
 
+const AVATAR_COLORS = [
+  'bg-blue-600', 'bg-violet-600', 'bg-emerald-600', 'bg-amber-600',
+  'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', 'bg-rose-600',
+];
+
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = seed.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string | null | undefined, email: string) {
+  if (name) {
+    const parts = name.trim().split(' ');
+    return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || (email[0] || '?').toUpperCase();
+  }
+  return (email[0] || '?').toUpperCase();
+}
+
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const { tier } = useRoleBasedAccess();
+  const { hasPermission } = useRoleBasedAccess();
+  const { profile, user, role } = useAuth();
 
-  // Filter nav items based on role
-  // Tier 1 = highest role (Super Admin), Tier 18 = lowest (Read-Only)
-  // Show item if user's tier is <= requiredTier (higher in hierarchy)
-  // Default to tier 15 (Employee) if tier is not yet loaded
-  const effectiveTier = tier ?? 15;
-  const visibleItems = NAV_ITEMS.filter(item => {
-    if (!item.requiredTier) return true;
-    return effectiveTier <= item.requiredTier;
-  });
+  const visibleItems = NAV_ITEMS.filter(item =>
+    !item.requiredPermission || hasPermission(item.requiredPermission)
+  );
+
+  const userEmail = profile?.email || user?.email || '';
+  const userName = profile?.full_name || (userEmail ? userEmail.split('@')[0] : 'User');
+  const initials = getInitials(profile?.full_name, userEmail);
+  const profileAvatarColor = userEmail ? avatarColor(userEmail) : 'bg-blue-600';
 
   return (
     <aside
@@ -157,17 +176,20 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* User Profile */}
       <div className={`border-t border-white/10 p-3 ${collapsed ? 'flex justify-center' : ''}`}>
         {collapsed ? (
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold cursor-pointer">
-            HR
+          <div
+            className={`w-8 h-8 rounded-full ${profileAvatarColor} flex items-center justify-center text-white text-xs font-bold cursor-pointer`}
+            title={`${userName} · ${role}`}
+          >
+            {initials}
           </div>
         ) : (
           <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors">
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-              SM
+            <div className={`w-8 h-8 rounded-full ${profileAvatarColor} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+              {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">Sarah Mitchell</p>
-              <p className="text-xs text-slate-400 truncate">HR Manager</p>
+              <p className="text-sm font-semibold text-white truncate">{userName}</p>
+              <p className="text-xs text-slate-400 truncate">{role}</p>
             </div>
             <Icon name="EllipsisVerticalIcon" size={16} className="text-slate-400 flex-shrink-0" />
           </div>

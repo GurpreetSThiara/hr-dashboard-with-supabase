@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 import Icon from '@/components/ui/AppIcon';
+import UserMenu from '@/components/UserMenu';
 // import CheckinCheckoutButton from '@/components/CheckinCheckoutButton'; // Commented out
 
 interface Notification {
@@ -159,17 +160,8 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
           <Icon name="QuestionMarkCircleIcon" size={18} />
         </button>
 
-        {/* User avatar */}
-        <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200 cursor-pointer group">
-          <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-white text-xs font-bold">
-            SM
-          </div>
-          <div className="hidden lg:block">
-            <p className="text-sm font-semibold text-slate-900 leading-tight">Sarah Mitchell</p>
-            <p className="text-xs text-slate-500">HR Manager</p>
-          </div>
-          <Icon name="ChevronDownIcon" size={14} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
-        </div>
+        {/* User menu with logout */}
+        <UserMenu />
       </div>
     </header>
   );

@@ -9,7 +9,7 @@ export default function LeaveAttendancePage() {
   const [activeTab, setActiveTab] = useState<'list' | 'calendar'>('list');
 
   return (
-    <AppLayout pageTitle="Leave & Attendance" breadcrumb="Leave Management">
+    <AppLayout pageTitle="Leave & Attendance" breadcrumb="Leave Management" requiredPermission="view_leaves">
       <div className="space-y-6">
         {/* Tab Navigation */}
         <div className="flex gap-0 border-b border-slate-200 bg-white rounded-t-lg">
