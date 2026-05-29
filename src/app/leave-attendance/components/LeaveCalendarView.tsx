@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, isSameMonth, isToday } from 'date-fns';
 import { toast } from 'sonner';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface LeaveRequest {
   id: string;
@@ -37,6 +38,8 @@ export default function LeaveCalendarView() {
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     fetchLeaves();
@@ -50,7 +53,7 @@ export default function LeaveCalendarView() {
         .select('*')
         .eq('status', 'approved')
         .order('start_date', { ascending: true });
-      
+
       setLeaves(data || []);
     } catch (error) {
       toast.error('Failed to fetch leave data');
@@ -58,6 +61,58 @@ export default function LeaveCalendarView() {
       setLoading(false);
     }
   }
+
+  // ── Realtime: sync approved leaves on calendar ─────────────────────────────
+  useEffect(() => {
+    const ch = supabase
+      .channel('calendar_live')
+
+      // Leave approved → add to calendar
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const newRow = payload.new as LeaveRequest;
+        const oldRow = payload.old as LeaveRequest;
+
+        if (newRow.status === 'approved' && oldRow.status !== 'approved') {
+          // Newly approved → add
+          setLeaves((prev) => {
+            if (prev.some((l) => l.id === newRow.id)) return prev;
+            return [...prev, newRow].sort((a, b) => a.start_date.localeCompare(b.start_date));
+          });
+        } else if (newRow.status !== 'approved' && oldRow.status === 'approved') {
+          // Un-approved (rejected/deleted) → remove
+          setLeaves((prev) => prev.filter((l) => l.id !== newRow.id));
+        } else if (newRow.status === 'approved') {
+          // Updated approved leave (dates changed) → update in place
+          setLeaves((prev) => prev.map((l) => (l.id === newRow.id ? { ...l, ...newRow } : l)));
+        }
+      })
+
+      // New leave inserted as approved (rare but possible)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const row = payload.new as LeaveRequest;
+        if (row.status === 'approved') {
+          setLeaves((prev) => {
+            if (prev.some((l) => l.id === row.id)) return prev;
+            return [...prev, row].sort((a, b) => a.start_date.localeCompare(b.start_date));
+          });
+        }
+      })
+
+      // Deleted leave → remove from calendar
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const row = payload.old as { id: string };
+        setLeaves((prev) => prev.filter((l) => l.id !== row.id));
+      })
+
+      .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
+
+    channelRef.current = ch;
+    return () => {
+      supabase.removeChannel(ch);
+      channelRef.current = null;
+      setIsLive(false);
+    };
+  }, []);
 
   function isDateInLeave(date: Date): LeaveRequest[] {
     const dateStr = format(date, 'yyyy-MM-dd');
@@ -85,6 +140,10 @@ export default function LeaveCalendarView() {
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Calendar className="w-5 h-5" />
             Leave Calendar - {format(currentDate, 'MMMM yyyy')}
+            <span className={`flex items-center gap-1 text-[10px] font-semibold ml-2 ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+              {isLive ? 'Live' : '—'}
+            </span>
           </h2>
           <div className="flex gap-2">
             <button

@@ -118,6 +118,10 @@ export default function EmployeeDashboardView() {
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [peersLoading, setPeersLoading] = useState(false);
 
+  // Realtime channel refs
+  const leaveChannelRef = useRef<any>(null);
+  const presenceChannelRef = useRef<any>(null);
+
   // Tab filtering for leaves
   const [activeLeaveTab, setActiveLeaveTab] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
@@ -329,13 +333,14 @@ export default function EmployeeDashboardView() {
         return;
       }
 
-      // Fetch today's checkin logs
+      // Fetch today's checkin logs (UTC day bounds, ordered newest-first)
       const today = format(new Date(), 'yyyy-MM-dd');
       const { data: logs } = await supabase
         .from('checkin_checkout_logs')
         .select('employee_id, check_in_time, check_out_time, location')
-        .gte('check_in_time', `${today}T00:00:00`)
-        .lte('check_in_time', `${today}T23:59:59`);
+        .gte('check_in_time', `${today}T00:00:00.000Z`)
+        .lte('check_in_time', `${today}T23:59:59.999Z`)
+        .order('check_in_time', { ascending: false });
 
       // Fetch leaves active today
       const { data: activeLeaves } = await supabase
@@ -346,9 +351,17 @@ export default function EmployeeDashboardView() {
         .gte('end_date', today);
 
       const leaveEmpIds = new Set(activeLeaves?.map(l => l.employee_id) || []);
+      // Prefer the ACTIVE session (no check_out_time). Logs are newest-first,
+      // so an active log should win over any completed log for the same employee.
       const logsMap = new Map<string, any>();
       logs?.forEach(log => {
-        logsMap.set(log.employee_id, log);
+        const existing = logsMap.get(log.employee_id);
+        if (!existing) {
+          logsMap.set(log.employee_id, log);
+        } else if (!log.check_out_time && existing.check_out_time) {
+          // current log is active, stored one was completed → replace
+          logsMap.set(log.employee_id, log);
+        }
       });
 
       const peerList: PeerInfo[] = employees.map(emp => {
@@ -384,6 +397,138 @@ export default function EmployeeDashboardView() {
       setPeersLoading(false);
     }
   }
+
+  // ── Realtime: my leave status + peer presence ──────────────────────────────
+  useEffect(() => {
+    if (!employee) return;
+
+    const empId = employee.id;
+    const empEmail = user?.email ?? '';
+
+    // ── (A) My leaves: status updates ──────────────────────────────────────
+    const leaveCh = supabase
+      .channel(`my_leaves_${empId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'leave_requests' },
+        (payload) => {
+          const row = payload.new as any;
+          const old = payload.old as any;
+          // Only care about this employee's leaves
+          if (row.employee_id !== empId && row.employee_email !== empEmail) return;
+          if (row.status === old.status) return;
+
+          // Update in list
+          setMyLeaves((prev) =>
+            prev.map((l) => (l.id === row.id ? { ...l, ...row } : l))
+          );
+
+          // Update leave balances if status changed to/from approved
+          if (row.status === 'approved' || old.status === 'approved') {
+            fetchLeaveData(empId);
+          }
+
+          // Toast notification
+          if (row.status === 'approved') {
+            toast.success(`Your ${row.leave_type} leave has been approved! ✅`, { duration: 6000 });
+          } else if (row.status === 'rejected') {
+            toast.error(`Your ${row.leave_type} leave request was rejected.`, {
+              description: row.approver_notes ? `Note: ${row.approver_notes}` : undefined,
+              duration: 6000,
+            });
+          }
+        }
+      )
+      // New leave I just submitted
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'leave_requests' },
+        (payload) => {
+          const row = payload.new as any;
+          if (row.employee_id !== empId && row.employee_email !== empEmail) return;
+          setMyLeaves((prev) => {
+            if (prev.some((l) => l.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+        }
+      )
+      // Deleted leave
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'leave_requests' },
+        (payload) => {
+          const row = payload.old as any;
+          setMyLeaves((prev) => prev.filter((l) => l.id !== row.id));
+        }
+      )
+      .subscribe();
+
+    leaveChannelRef.current = leaveCh;
+
+    // ── (B) Peer presence: check-in/out events ──────────────────────────────
+    const today = new Date().toISOString().split('T')[0];
+
+    const presenceCh = supabase
+      .channel(`peer_presence_${empId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'checkin_checkout_logs' },
+        (payload) => {
+          const log = payload.new as any;
+          // Check-in happened: update peer presence if it's one of our peers
+          setPeers((prev) => {
+            const peer = prev.find((p) => p.id === log.employee_id);
+            if (!peer) return prev; // not our peer
+            const newStatus: PeerInfo['presenceStatus'] =
+              log.location === 'Home' ? 'WFH' : 'Present';
+            return prev.map((p) =>
+              p.id === log.employee_id
+                ? {
+                    ...p,
+                    presenceStatus: newStatus,
+                    checkInTime: new Date(log.check_in_time).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }),
+                  }
+                : p
+            );
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'checkin_checkout_logs' },
+        (payload) => {
+          const log = payload.new as any;
+          // Only react to check-outs, and only for one of our peers.
+          if (!log.check_out_time) return;
+          setPeers((prev) => {
+            const isPeer = prev.some((p) => p.id === log.employee_id);
+            if (isPeer && employee?.department) {
+              // Re-derive presence from DB: the peer may still have another
+              // active session, or be on leave — don't blindly mark them absent.
+              fetchPeers(employee.department, empId);
+            }
+            return prev;
+          });
+        }
+      )
+      .subscribe();
+
+    presenceChannelRef.current = presenceCh;
+
+    return () => {
+      if (leaveChannelRef.current) {
+        supabase.removeChannel(leaveChannelRef.current);
+        leaveChannelRef.current = null;
+      }
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+    };
+  }, [employee?.id, user?.email]);
 
   // 5. Attendance Actions
   async function handleCheckIn() {

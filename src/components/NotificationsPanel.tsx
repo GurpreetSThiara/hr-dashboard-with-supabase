@@ -6,7 +6,7 @@ import { useRealtimeNotifications } from '@/lib/useRealtimeNotifications';
 
 export default function NotificationsPanel() {
   const [isOpen, setIsOpen] = useState(false);
-  const { notifications, unreadCount, markAsRead, clearAll } = useRealtimeNotifications();
+  const { notifications, unreadCount, markAsRead, markAllRead, clearAll } = useRealtimeNotifications();
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -20,6 +20,8 @@ export default function NotificationsPanel() {
         return <Icon name="UserMinusIcon" size={16} className="text-orange-600" />;
       case 'leave_submitted':
         return <Icon name="DocumentCheckIcon" size={16} className="text-indigo-600" />;
+      case 'regularization_updated':
+        return <Icon name="ClockIcon" size={16} className="text-amber-600" />;
       default:
         return <Icon name="BellIcon" size={16} className="text-slate-600" />;
     }
@@ -46,14 +48,30 @@ export default function NotificationsPanel() {
         <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl border border-slate-200 shadow-lg z-50">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <h3 className="font-semibold text-slate-900">Notifications</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-slate-900">Notifications</h3>
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live
+              </span>
+            </div>
             {notifications.length > 0 && (
-              <button
-                onClick={clearAll}
-                className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
-              >
-                Clear all
-              </button>
+              <div className="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllRead}
+                    className="text-xs text-slate-500 hover:text-slate-700 font-medium transition-colors"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button
+                  onClick={clearAll}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                >
+                  Clear all
+                </button>
+              </div>
             )}
           </div>
 

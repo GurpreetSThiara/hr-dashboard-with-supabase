@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import AddEmployeeModal from './AddEmployeeModal';
 import EditEmployeeModal from './EditEmployeeModal';
 import EmployeeProfileDrawer from './EmployeeProfileDrawer';
@@ -108,6 +109,7 @@ export default function EmployeeTableSection() {
   const [deletingInProgress, setDeletingInProgress] = useState(false);
 
   const supabase = createClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -128,13 +130,43 @@ export default function EmployeeTableSection() {
       .select('*')
       .order('emp_id', { ascending: true })
       .then(({ data, error }) => {
-        if (error) {
-          setError('Failed to load employees');
-        } else {
-          setEmployees(data || []);
-        }
+        if (error) setError('Failed to load employees');
+        else setEmployees(data || []);
         setLoading(false);
       });
+  }, []);
+
+  // ── Realtime: sync employee rows ──────────────────────────────────────────
+  useEffect(() => {
+    const ch = supabase
+      .channel('emp_table_live')
+
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'employees' }, (payload) => {
+        const row = payload.new as Employee;
+        setEmployees((prev) => {
+          if (prev.some((e) => e.id === row.id)) return prev;
+          return [...prev, row].sort((a, b) => a.emp_id.localeCompare(b.emp_id));
+        });
+        toast.success(`New employee added: ${row.first_name} ${row.last_name}`, { duration: 3000 });
+      })
+
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'employees' }, (payload) => {
+        const row = payload.new as Employee;
+        setEmployees((prev) => prev.map((e) => (e.id === row.id ? { ...e, ...row } : e)));
+      })
+
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'employees' }, (payload) => {
+        const row = payload.old as { id: string };
+        setEmployees((prev) => prev.filter((e) => e.id !== row.id));
+      })
+
+      .subscribe();
+
+    channelRef.current = ch;
+    return () => {
+      supabase.removeChannel(ch);
+      channelRef.current = null;
+    };
   }, []);
 
   const canEdit = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'].includes(userRole || '');

@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface LeaveRequest {
   id: string;
@@ -30,8 +31,10 @@ export default function LeaveAttendanceSection() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [approverNotes, setApproverNotes] = useState<Record<string, string>>({});
+  const [isLive, setIsLive] = useState(false);
 
   const supabase = createClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   // Fetch user role
   useEffect(() => {
@@ -53,29 +56,70 @@ export default function LeaveAttendanceSection() {
     fetchUserRole();
   }, []);
 
-  // Fetch leave requests
-  useEffect(() => {
-    async function fetchLeaves() {
-      try {
-        setLoading(true);
-        let query = supabase.from('leave_requests').select('*').order('created_at', { ascending: false });
-
-        if (activeTab !== 'all') {
-          query = query.eq('status', activeTab);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        setLeaves(data || []);
-      } catch (err) {
-        console.error('Error fetching leaves:', err);
-        toast.error('Failed to load leave requests');
-      } finally {
-        setLoading(false);
-      }
+  // Fetch leave requests (memoised)
+  const fetchLeaves = useCallback(async () => {
+    try {
+      setLoading(true);
+      let query = supabase.from('leave_requests').select('*').order('created_at', { ascending: false });
+      if (activeTab !== 'all') query = query.eq('status', activeTab);
+      const { data, error } = await query;
+      if (error) throw error;
+      setLeaves(data || []);
+    } catch (err) {
+      console.error('Error fetching leaves:', err);
+      toast.error('Failed to load leave requests');
+    } finally {
+      setLoading(false);
     }
+  }, [activeTab]);
 
+  useEffect(() => {
     fetchLeaves();
+  }, [fetchLeaves]);
+
+  // ── Realtime: keep list in sync ────────────────────────────────────────────
+  useEffect(() => {
+    const ch = supabase
+      .channel('leave_section_live')
+
+      // New leave submitted → prepend if it matches the current tab filter
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const row = payload.new as LeaveRequest;
+        if (activeTab === 'all' || row.status === activeTab) {
+          setLeaves((prev) => {
+            if (prev.some((l) => l.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+        }
+      })
+
+      // Status / content changed → update or remove from current view
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const row = payload.new as LeaveRequest;
+        setLeaves((prev) => {
+          const exists = prev.some((l) => l.id === row.id);
+          const matches = activeTab === 'all' || row.status === activeTab;
+          if (exists && matches) return prev.map((l) => (l.id === row.id ? { ...l, ...row } : l));
+          if (exists && !matches) return prev.filter((l) => l.id !== row.id);
+          if (!exists && matches) return [row, ...prev];
+          return prev;
+        });
+      })
+
+      // Deleted → remove
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'leave_requests' }, (payload) => {
+        const row = payload.old as { id: string };
+        setLeaves((prev) => prev.filter((l) => l.id !== row.id));
+      })
+
+      .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
+
+    channelRef.current = ch;
+    return () => {
+      supabase.removeChannel(ch);
+      channelRef.current = null;
+      setIsLive(false);
+    };
   }, [activeTab]);
 
   // Role-based permission check
@@ -170,23 +214,29 @@ export default function LeaveAttendanceSection() {
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       {/* Tabs */}
       <div className="border-b border-slate-200 px-6 py-4">
-        <div className="flex gap-4 overflow-x-auto">
-          {(['all', 'pending', 'approved', 'rejected'] as const).map((tab) => {
-            const count = leaves.filter((l) => tab === 'all' || l.status === tab).length;
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-sm font-semibold whitespace-nowrap transition-colors rounded-lg ${
-                  activeTab === tab
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)} ({count})
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-4 overflow-x-auto">
+            {(['all', 'pending', 'approved', 'rejected'] as const).map((tab) => {
+              const count = leaves.filter((l) => tab === 'all' || l.status === tab).length;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 text-sm font-semibold whitespace-nowrap transition-colors rounded-lg ${
+                    activeTab === tab
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)} ({count})
+                </button>
+              );
+            })}
+          </div>
+          <span className={`flex items-center gap-1 text-[11px] font-semibold shrink-0 ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+            {isLive ? 'Live' : '—'}
+          </span>
         </div>
       </div>
 

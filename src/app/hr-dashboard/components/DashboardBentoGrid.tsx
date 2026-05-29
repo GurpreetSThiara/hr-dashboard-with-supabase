@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export default function DashboardBentoGrid() {
   const [metrics, setMetrics] = useState({
@@ -21,47 +22,65 @@ export default function DashboardBentoGrid() {
   });
 
   const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
 
   const supabase = createClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const [
+        { data: employees },
+        { data: leaveRequests },
+        { data: attendance },
+      ] = await Promise.all([
+        supabase.from('employees').select('status'),
+        supabase.from('leave_requests').select('id').eq('status', 'pending'),
+        supabase.from('attendance_records').select('status').eq('attendance_date', new Date().toISOString().split('T')[0]),
+      ]);
+
+      const totalHeadcount = employees?.length || 0;
+      const activeEmployees = employees?.filter((e: any) => e.status === 'active').length || 0;
+      const onLeave = employees?.filter((e: any) => e.status === 'onleave').length || 0;
+      const onboarding = employees?.filter((e: any) => e.status === 'onboarding').length || 0;
+      const presentToday = attendance?.filter((a: any) => a.status === 'present').length || 0;
+      const attendanceToday = totalHeadcount > 0 ? ((presentToday / totalHeadcount) * 100).toFixed(1) : '0';
+
+      setMetrics({
+        totalHeadcount,
+        activeEmployees,
+        onLeave,
+        onboarding,
+        pendingLeaves: leaveRequests?.length || 0,
+        attendanceToday: parseFloat(attendanceToday),
+      });
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function fetchMetrics() {
-      try {
-        const [
-          { data: employees },
-          { data: leaveRequests },
-          { data: attendance },
-        ] = await Promise.all([
-          supabase.from('employees').select('*'),
-          supabase.from('leave_requests').select('*').eq('status', 'pending'),
-          supabase.from('attendance_records').select('*').eq('attendance_date', new Date().toISOString().split('T')[0]),
-        ]);
-
-        const totalHeadcount = employees?.length || 0;
-        const activeEmployees = employees?.filter((e: any) => e.status === 'active').length || 0;
-        const onLeave = employees?.filter((e: any) => e.status === 'onleave').length || 0;
-        const onboarding = employees?.filter((e: any) => e.status === 'onboarding').length || 0;
-        const presentToday = attendance?.filter((a: any) => a.status === 'present').length || 0;
-        const attendanceToday = totalHeadcount > 0 ? ((presentToday / totalHeadcount) * 100).toFixed(1) : '0';
-
-        setMetrics({
-          totalHeadcount,
-          activeEmployees,
-          onLeave,
-          onboarding,
-          pendingLeaves: leaveRequests?.length || 0,
-          attendanceToday: parseFloat(attendanceToday),
-          // payrollPercent, attritionRate, openRequisitions, onboardingRate, policyAckRate will be added when features are implemented
-        });
-      } catch (error) {
-        console.error('Error fetching metrics:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchMetrics();
-  }, []);
+  }, [fetchMetrics]);
+
+  // ── Realtime: re-fetch metrics on any relevant change ──────────────────────
+  useEffect(() => {
+    const ch = supabase
+      .channel('bento_metrics_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employees' }, () => fetchMetrics())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, () => fetchMetrics())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records' }, () => fetchMetrics())
+      .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
+
+    channelRef.current = ch;
+    return () => {
+      supabase.removeChannel(ch);
+      channelRef.current = null;
+      setIsLive(false);
+    };
+  }, [fetchMetrics]);
 
   if (loading) {
     return (
@@ -82,9 +101,15 @@ export default function DashboardBentoGrid() {
           <div className="w-11 h-11 rounded-lg bg-blue-100 flex items-center justify-center">
             <Icon name="UsersIcon" size={22} className="text-blue-700" />
           </div>
-          <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
-            <Icon name="ArrowUpIcon" size={12} />
-            +4.2% vs last month
+          <div className="flex items-center gap-3">
+            <span className={`flex items-center gap-1 text-[10px] font-semibold ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+              {isLive ? 'Live' : '—'}
+            </span>
+            <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
+              <Icon name="ArrowUpIcon" size={12} />
+              +4.2% vs last month
+            </div>
           </div>
         </div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Total Headcount</p>

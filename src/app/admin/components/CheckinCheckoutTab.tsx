@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface CheckinLog {
   id: string;
@@ -30,6 +31,8 @@ export default function CheckinCheckoutTab() {
   const [logs, setLogs] = useState<CheckinLog[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     fetchEmployees();
@@ -42,9 +45,8 @@ export default function CheckinCheckoutTab() {
         .select('*')
         .eq('status', 'active')
         .order('first_name', { ascending: true });
-      
       setEmployees(data || []);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch employees');
     }
   }
@@ -52,8 +54,22 @@ export default function CheckinCheckoutTab() {
   useEffect(() => {
     if (selectedEmployeeId) {
       fetchLogs();
+      subscribeToLogs(selectedEmployeeId);
+    } else {
+      setLogs([]);
+      cleanupChannel();
     }
+
+    return () => cleanupChannel();
   }, [selectedEmployeeId]);
+
+  function cleanupChannel() {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+      setIsLive(false);
+    }
+  }
 
   async function fetchLogs() {
     try {
@@ -64,20 +80,56 @@ export default function CheckinCheckoutTab() {
         .eq('employee_id', selectedEmployeeId)
         .order('created_at', { ascending: false })
         .limit(30);
-      
       setLogs(data || []);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch logs');
     } finally {
       setLoading(false);
     }
   }
 
+  function subscribeToLogs(empId: string) {
+    cleanupChannel();
+
+    const ch = supabase
+      .channel(`checkin_logs_${empId}`)
+
+      // New check-in → prepend to list
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'checkin_checkout_logs' },
+        (payload) => {
+          const row = payload.new as CheckinLog;
+          if (row.employee_id !== empId) return;
+          setLogs((prev) => {
+            if (prev.some((l) => l.id === row.id)) return prev;
+            return [row, ...prev.slice(0, 29)]; // keep max 30
+          });
+          toast.info('New check-in recorded', { duration: 2500 });
+        }
+      )
+
+      // Check-out updated → update row in place
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'checkin_checkout_logs' },
+        (payload) => {
+          const row = payload.new as CheckinLog;
+          if (row.employee_id !== empId) return;
+          setLogs((prev) => prev.map((l) => (l.id === row.id ? { ...l, ...row } : l)));
+        }
+      )
+
+      .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
+
+    channelRef.current = ch;
+  }
+
   function formatTime(dateString: string) {
-    return new Date(dateString).toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    return new Date(dateString).toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
     });
   }
 
@@ -94,7 +146,7 @@ export default function CheckinCheckoutTab() {
 
   return (
     <div className="space-y-6">
-      {/* Selection and Summary */}
+      {/* Selection */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">Select Employee</label>
@@ -104,7 +156,7 @@ export default function CheckinCheckoutTab() {
             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Choose employee...</option>
-            {employees.map(emp => (
+            {employees.map((emp) => (
               <option key={emp.id} value={emp.id}>
                 {emp.first_name} {emp.last_name} ({emp.emp_id})
               </option>
@@ -116,10 +168,14 @@ export default function CheckinCheckoutTab() {
       {/* Logs Table */}
       {selectedEmployeeId && (
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
+          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Check-in/Out Logs</h2>
+            <span className={`flex items-center gap-1.5 text-xs font-semibold ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+              {isLive ? 'Live — updates as events occur' : 'Connecting…'}
+            </span>
           </div>
-          
+
           {loading ? (
             <div className="px-6 py-8 text-center text-slate-500">Loading...</div>
           ) : logs.length === 0 ? (
@@ -137,11 +193,25 @@ export default function CheckinCheckoutTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-50">
+                {logs.map((log, idx) => (
+                  <tr
+                    key={log.id}
+                    className={`hover:bg-slate-50 transition-colors ${
+                      idx === 0 && !log.check_out_time ? 'bg-emerald-50/40' : ''
+                    }`}
+                  >
                     <td className="px-6 py-3 text-sm text-slate-700">{formatDate(log.check_in_time)}</td>
                     <td className="px-6 py-3 text-sm font-medium text-slate-900">{formatTime(log.check_in_time)}</td>
-                    <td className="px-6 py-3 text-sm text-slate-700">{log.check_out_time ? formatTime(log.check_out_time) : '-'}</td>
+                    <td className="px-6 py-3 text-sm text-slate-700">
+                      {log.check_out_time ? (
+                        formatTime(log.check_out_time)
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Active
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-3 text-sm text-slate-700">{formatDuration(log.duration_minutes)}</td>
                     <td className="px-6 py-3 text-sm text-slate-700">{log.location || '-'}</td>
                     <td className="px-6 py-3 text-sm text-slate-700">{log.device || '-'}</td>
