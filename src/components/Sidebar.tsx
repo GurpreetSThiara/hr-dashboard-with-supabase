@@ -27,7 +27,8 @@ interface NavItemWithRole extends NavItem {
 }
 
 const NAV_ITEMS: NavItemWithRole[] = [
-  { id: 'nav-dashboard', label: 'HR Dashboard',       icon: 'ChartBarSquareIcon', href: '/hr-dashboard',         section: 'OVERVIEW',   requiredPermission: 'view_dashboard'  },
+  { id: 'nav-my-dashboard', label: 'My Dashboard',     icon: 'UserIcon',           href: '/my-dashboard',         section: 'OVERVIEW' },
+  { id: 'nav-hr-dashboard', label: 'HR Dashboard',     icon: 'ChartBarSquareIcon', href: '/hr-dashboard',         section: 'OVERVIEW',   requiredPermission: 'view_hr_dashboard'  },
   { id: 'nav-employees', label: 'Employees',          icon: 'UsersIcon',          href: '/employee-management',  section: 'PEOPLE',     requiredPermission: 'view_employees'  },
   { id: 'nav-leave',     label: 'Leave & Attendance', icon: 'CalendarDaysIcon',   href: '/leave-attendance',     section: 'OPERATIONS', requiredPermission: 'view_leaves'     },
   { id: 'nav-admin',     label: 'Admin Management',   icon: 'Cog6ToothIcon',      href: '/admin',                section: 'SYSTEM',     requiredPermission: 'admin_panel'     },
@@ -75,15 +76,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   const visibleItems = NAV_ITEMS.filter(item =>
     !item.requiredPermission || hasPermission(item.requiredPermission)
-  ).map(item => {
-    if (item.id === 'nav-dashboard') {
-      return {
-        ...item,
-        label: hasPermission('view_hr_dashboard') ? 'HR Dashboard' : 'My Dashboard',
-      };
-    }
-    return item;
-  });
+  );
 
   const userEmail = profile?.email || user?.email || '';
   const userName = profile?.full_name || (userEmail ? userEmail.split('@')[0] : 'User');
@@ -126,9 +119,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               )}
               {collapsed && <div className="mx-3 my-1 border-t border-white/10" />}
               {items.map((item) => {
-                const isActive = pathname === item.href && item.href !== '/hr-dashboard' 
-                  ? pathname === item.href 
-                  : pathname === item.href;
+                const isActive = pathname === item.href;
                 const exactActive = pathname === item.href;
                 return (
                   <div

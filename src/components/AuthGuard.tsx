@@ -20,7 +20,7 @@ interface Props {
  * 1) Redirects to /sign-up-login-screen if unauthenticated
  * 2) If requiredPermission is set, redirects to fallbackPath when user lacks it
  */
-export default function AuthGuard({ children, requiredPermission, fallbackPath = '/hr-dashboard' }: Props) {
+export default function AuthGuard({ children, requiredPermission, fallbackPath = '/my-dashboard' }: Props) {
   const router = useRouter();
   const { user, loading } = useAuth();
   const { hasPermission } = useRoleBasedAccess();

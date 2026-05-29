@@ -11,7 +11,7 @@ export default function RootPage() {
 
   useEffect(() => {
     if (loading) return;
-    router.replace(user ? '/hr-dashboard' : '/sign-up-login-screen');
+    router.replace(user ? '/my-dashboard' : '/sign-up-login-screen');
   }, [loading, user, router]);
 
   return (

@@ -8,14 +8,16 @@ import CheckinCheckoutTab from './components/CheckinCheckoutTab';
 import ReportingHierarchyTab from './components/ReportingHierarchyTab';
 import PermissionsMatrixTab from './components/PermissionsMatrixTab';
 import UsersTab from './components/UsersTab';
+import AttendanceSettingsTab from './components/AttendanceSettingsTab';
 
-type TabType = 'users' | 'permissions' | 'policies' | 'checkin' | 'hierarchy';
+type TabType = 'users' | 'permissions' | 'policies' | 'checkin' | 'attendance-settings' | 'hierarchy';
 
 const TABS: { id: TabType; label: string; icon: string; description: string }[] = [
   { id: 'users',       label: 'Users',              icon: 'UsersIcon',             description: 'Manage user accounts and role assignments' },
   { id: 'permissions', label: 'Roles & Permissions', icon: 'ShieldCheckIcon',       description: 'Configure what each role can access' },
   { id: 'policies',    label: 'Leave Management',    icon: 'CalendarDaysIcon',      description: 'Manage leave types, policy versions, and all leave requests' },
   { id: 'checkin',     label: 'Attendance Logs',     icon: 'ClockIcon',             description: 'View employee check-in / check-out history' },
+  { id: 'attendance-settings', label: 'Attendance Settings', icon: 'Cog6ToothIcon', description: 'Configure global attendance rules, allowed check-in roles, and regularization limits' },
   { id: 'hierarchy',   label: 'Org Hierarchy',       icon: 'BuildingOffice2Icon',   description: 'Manage reporting relationships' },
 ];
 
@@ -70,6 +72,7 @@ export default function AdminPage() {
           {activeTab === 'policies'    && <LeaveManagementTab />}
           {activeTab === 'checkin'     && <CheckinCheckoutTab />}
           {activeTab === 'hierarchy'   && <ReportingHierarchyTab />}
+          {activeTab === 'attendance-settings' && <AttendanceSettingsTab />}
         </div>
       </div>
     </AppLayout>

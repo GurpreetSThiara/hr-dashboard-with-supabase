@@ -72,7 +72,7 @@ export default function LoginForm() {
 
   // ── Already-signed-in users go straight to dashboard ─────────────────────
   useEffect(() => {
-    if (!authLoading && user) router.replace('/hr-dashboard');
+    if (!authLoading && user) router.replace('/my-dashboard');
   }, [authLoading, user, router]);
 
   // ── Load demo users from API ──────────────────────────────────────────────
@@ -106,7 +106,7 @@ export default function LoginForm() {
       toast.success(`Welcome back! Signed in as ${friendly}`, { description: 'Loading your workspace…' });
       // Auth context picks up the new session; explicit redirect for snappy UX
       await new Promise(r => setTimeout(r, 200));
-      router.push('/hr-dashboard');
+      router.push('/my-dashboard');
     } catch (err: any) {
       setError('email', { message: err?.message || 'Failed to sign in. Please check your credentials.' });
       toast.error('Sign in failed', { description: err?.message || 'Check that demo users have been seeded.' });

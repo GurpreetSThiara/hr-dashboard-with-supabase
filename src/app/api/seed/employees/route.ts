@@ -1,36 +1,25 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  { auth: { persistSession: false } }
-);
+import { withPgClient } from '@/lib/pgClient';
 
 const employees = [
-  // CEO
-  { emp_id: 'EMP-001', first_name: 'Sarah', last_name: 'Johnson', email: 'sarah.johnson@hrcore.io', department: 'Executive', designation: 'Chief Executive Officer', manager_email: null, employment_type: 'Full-Time', join_date: '2019-01-15', status: 'active', salary_band: 'L1', location: 'New York', attendance_pct: 98 },
-  // Directors
-  { emp_id: 'EMP-002', first_name: 'Marcus', last_name: 'Chen', email: 'marcus.chen@hrcore.io', department: 'Engineering', designation: 'VP Engineering', manager_email: 'sarah.johnson@hrcore.io', employment_type: 'Full-Time', join_date: '2020-03-10', status: 'active', salary_band: 'L2', location: 'San Francisco', attendance_pct: 97 },
-  { emp_id: 'EMP-003', first_name: 'Elena', last_name: 'Vasquez', email: 'elena.vasquez@hrcore.io', department: 'Human Resources', designation: 'VP People Operations', manager_email: 'sarah.johnson@hrcore.io', employment_type: 'Full-Time', join_date: '2020-06-01', status: 'active', salary_band: 'L2', location: 'New York', attendance_pct: 96 },
-  { emp_id: 'EMP-004', first_name: 'David', last_name: 'Williams', email: 'david.williams@hrcore.io', department: 'Finance', designation: 'CFO', manager_email: 'sarah.johnson@hrcore.io', employment_type: 'Full-Time', join_date: '2019-09-20', status: 'active', salary_band: 'L2', location: 'Boston', attendance_pct: 99 },
-  { emp_id: 'EMP-005', first_name: 'Priya', last_name: 'Patel', email: 'priya.patel@hrcore.io', department: 'Operations', designation: 'VP Operations', manager_email: 'sarah.johnson@hrcore.io', employment_type: 'Full-Time', join_date: '2021-01-15', status: 'active', salary_band: 'L2', location: 'New York', attendance_pct: 95 },
-  // Senior Managers
-  { emp_id: 'EMP-006', first_name: 'Ahmed', last_name: 'Hassan', email: 'ahmed.hassan@hrcore.io', department: 'Engineering', designation: 'Senior Engineering Manager', manager_email: 'marcus.chen@hrcore.io', employment_type: 'Full-Time', join_date: '2021-02-01', status: 'active', salary_band: 'L3', location: 'San Francisco', attendance_pct: 96 },
-  { emp_id: 'EMP-007', first_name: 'Lisa', last_name: 'Wong', email: 'lisa.wong@hrcore.io', department: 'Engineering', designation: 'Senior Engineering Manager', manager_email: 'marcus.chen@hrcore.io', employment_type: 'Full-Time', join_date: '2020-11-15', status: 'active', salary_band: 'L3', location: 'San Francisco', attendance_pct: 94 },
-  { emp_id: 'EMP-008', first_name: 'James', last_name: 'Murphy', email: 'james.murphy@hrcore.io', department: 'Human Resources', designation: 'HR Manager', manager_email: 'elena.vasquez@hrcore.io', employment_type: 'Full-Time', join_date: '2021-03-10', status: 'active', salary_band: 'L3', location: 'New York', attendance_pct: 97 },
-  { emp_id: 'EMP-009', first_name: 'Olivia', last_name: 'Brown', email: 'olivia.brown@hrcore.io', department: 'Finance', designation: 'Finance Manager', manager_email: 'david.williams@hrcore.io', employment_type: 'Full-Time', join_date: '2021-05-01', status: 'active', salary_band: 'L3', location: 'Boston', attendance_pct: 98 },
-  // Team Leads
-  { emp_id: 'EMP-010', first_name: 'Robert', last_name: 'Taylor', email: 'robert.taylor@hrcore.io', department: 'Engineering', designation: 'Tech Lead', manager_email: 'ahmed.hassan@hrcore.io', employment_type: 'Full-Time', join_date: '2021-07-15', status: 'active', salary_band: 'L4', location: 'San Francisco', attendance_pct: 95 },
-  { emp_id: 'EMP-011', first_name: 'Sophie', last_name: 'Martin', email: 'sophie.martin@hrcore.io', department: 'Engineering', designation: 'Tech Lead', manager_email: 'lisa.wong@hrcore.io', employment_type: 'Full-Time', join_date: '2021-06-01', status: 'active', salary_band: 'L4', location: 'San Francisco', attendance_pct: 93 },
-  // Individual Contributors
-  { emp_id: 'EMP-012', first_name: 'John', last_name: 'Smith', email: 'john.smith@hrcore.io', department: 'Engineering', designation: 'Senior Software Engineer', manager_email: 'robert.taylor@hrcore.io', employment_type: 'Full-Time', join_date: '2021-08-10', status: 'active', salary_band: 'L5', location: 'San Francisco', attendance_pct: 92 },
-  { emp_id: 'EMP-013', first_name: 'Maria', last_name: 'Garcia', email: 'maria.garcia@hrcore.io', department: 'Engineering', designation: 'Software Engineer', manager_email: 'robert.taylor@hrcore.io', employment_type: 'Full-Time', join_date: '2022-01-15', status: 'active', salary_band: 'L6', location: 'San Francisco', attendance_pct: 91 },
-  { emp_id: 'EMP-014', first_name: 'Emma', last_name: 'Wilson', email: 'emma.wilson@hrcore.io', department: 'Engineering', designation: 'Software Engineer', manager_email: 'sophie.martin@hrcore.io', employment_type: 'Full-Time', join_date: '2022-02-20', status: 'active', salary_band: 'L6', location: 'San Francisco', attendance_pct: 89 },
-  { emp_id: 'EMP-015', first_name: 'Michael', last_name: 'Johnson', email: 'michael.johnson@hrcore.io', department: 'Human Resources', designation: 'HR Executive', manager_email: 'james.murphy@hrcore.io', employment_type: 'Full-Time', join_date: '2022-03-10', status: 'active', salary_band: 'L5', location: 'New York', attendance_pct: 94 },
-  { emp_id: 'EMP-016', first_name: 'Jennifer', last_name: 'Lee', email: 'jennifer.lee@hrcore.io', department: 'Finance', designation: 'Accountant', manager_email: 'olivia.brown@hrcore.io', employment_type: 'Full-Time', join_date: '2022-04-15', status: 'active', salary_band: 'L6', location: 'Boston', attendance_pct: 90 },
-  { emp_id: 'EMP-017', first_name: 'Christopher', last_name: 'Davis', email: 'christopher.davis@hrcore.io', department: 'Operations', designation: 'Operations Analyst', manager_email: 'priya.patel@hrcore.io', employment_type: 'Full-Time', join_date: '2022-05-01', status: 'active', salary_band: 'L6', location: 'New York', attendance_pct: 88 },
-  { emp_id: 'EMP-018', first_name: 'Rachel', last_name: 'Green', email: 'rachel.green@hrcore.io', department: 'Engineering', designation: 'Junior Engineer', manager_email: 'robert.taylor@hrcore.io', employment_type: 'Full-Time', join_date: '2023-06-01', status: 'active', salary_band: 'L7', location: 'San Francisco', attendance_pct: 85 },
+  { emp_id: 'EMP-0001', first_name: 'Sarah', last_name: 'Anderson', email: 'superadmin@hrcore.io', department: 'Executive', designation: 'Super Admin', manager_email: null, employment_type: 'Full-Time', join_date: '2018-01-10', status: 'active', salary_band: 'L1', location: 'New York', attendance_pct: 99 },
+  { emp_id: 'EMP-0002', first_name: 'Marcus', last_name: 'Chen', email: 'owner@hrcore.io', department: 'Executive', designation: 'Owner', manager_email: 'superadmin@hrcore.io', employment_type: 'Full-Time', join_date: '2019-03-15', status: 'active', salary_band: 'L2', location: 'San Francisco', attendance_pct: 98 },
+  { emp_id: 'EMP-0003', first_name: 'Olivia', last_name: 'Park', email: 'admin@hrcore.io', department: 'IT', designation: 'Admin', manager_email: 'superadmin@hrcore.io', employment_type: 'Full-Time', join_date: '2020-05-20', status: 'active', salary_band: 'L3', location: 'New York', attendance_pct: 97 },
+  { emp_id: 'EMP-0004', first_name: 'Elena', last_name: 'Vasquez', email: 'hradmin@hrcore.io', department: 'HR', designation: 'HR Admin', manager_email: 'superadmin@hrcore.io', employment_type: 'Full-Time', join_date: '2018-06-01', status: 'active', salary_band: 'L3', location: 'San Francisco', attendance_pct: 96 },
+  { emp_id: 'EMP-0005', first_name: 'James', last_name: 'Wilson', email: 'hrmanager@hrcore.io', department: 'HR', designation: 'HR Manager', manager_email: 'hradmin@hrcore.io', employment_type: 'Full-Time', join_date: '2021-02-15', status: 'active', salary_band: 'L4', location: 'Chicago', attendance_pct: 95 },
+  { emp_id: 'EMP-0006', first_name: 'Priya', last_name: 'Patel', email: 'hrexec@hrcore.io', department: 'HR', designation: 'HR Executive', manager_email: 'hrmanager@hrcore.io', employment_type: 'Full-Time', join_date: '2022-04-10', status: 'active', salary_band: 'L5', location: 'Dallas', attendance_pct: 94 },
+  { emp_id: 'EMP-0007', first_name: 'Tom', last_name: 'Bennett', email: 'recruiter@hrcore.io', department: 'HR', designation: 'Recruiter', manager_email: 'hrmanager@hrcore.io', employment_type: 'Full-Time', join_date: '2023-01-15', status: 'active', salary_band: 'L5', location: 'Austin', attendance_pct: 93 },
+  { emp_id: 'EMP-0008', first_name: 'Sophie', last_name: 'Martin', email: 'payroll@hrcore.io', department: 'Finance', designation: 'Payroll Manager', manager_email: 'finance@hrcore.io', employment_type: 'Full-Time', join_date: '2021-11-01', status: 'active', salary_band: 'L4', location: 'Boston', attendance_pct: 96 },
+  { emp_id: 'EMP-0009', first_name: 'David', last_name: 'Kim', email: 'finance@hrcore.io', department: 'Finance', designation: 'Finance', manager_email: 'superadmin@hrcore.io', employment_type: 'Full-Time', join_date: '2020-08-25', status: 'active', salary_band: 'L3', location: 'New York', attendance_pct: 98 },
+  { emp_id: 'EMP-0010', first_name: 'Rachel', last_name: 'Green', email: 'compliance@hrcore.io', department: 'Legal', designation: 'Compliance', manager_email: 'hradmin@hrcore.io', employment_type: 'Full-Time', join_date: '2022-07-01', status: 'active', salary_band: 'L4', location: 'New York', attendance_pct: 95 },
+  { emp_id: 'EMP-0011', first_name: 'Alex', last_name: 'Turner', email: 'itops@hrcore.io', department: 'IT', designation: 'IT Ops', manager_email: 'admin@hrcore.io', employment_type: 'Full-Time', join_date: '2023-05-15', status: 'active', salary_band: 'L5', location: 'Seattle', attendance_pct: 92 },
+  { emp_id: 'EMP-0012', first_name: 'Michael', last_name: 'Brown', email: 'director@hrcore.io', department: 'Engineering', designation: 'Director', manager_email: 'owner@hrcore.io', employment_type: 'Full-Time', join_date: '2020-10-01', status: 'active', salary_band: 'L3', location: 'San Francisco', attendance_pct: 97 },
+  { emp_id: 'EMP-0013', first_name: 'Lisa', last_name: 'Chen', email: 'manager@hrcore.io', department: 'Engineering', designation: 'Manager', manager_email: 'director@hrcore.io', employment_type: 'Full-Time', join_date: '2021-03-10', status: 'active', salary_band: 'L4', location: 'San Francisco', attendance_pct: 94 },
+  { emp_id: 'EMP-0014', first_name: 'Ryan', last_name: 'Foster', email: 'teamlead@hrcore.io', department: 'Engineering', designation: 'Team Lead', manager_email: 'manager@hrcore.io', employment_type: 'Full-Time', join_date: '2021-12-05', status: 'active', salary_band: 'L5', location: 'San Francisco', attendance_pct: 95 },
+  { emp_id: 'EMP-0015', first_name: 'Jenny', last_name: 'Liu', email: 'employee@hrcore.io', department: 'Engineering', designation: 'Employee', manager_email: 'teamlead@hrcore.io', employment_type: 'Full-Time', join_date: '2022-08-01', status: 'active', salary_band: 'L6', location: 'San Francisco', attendance_pct: 92 },
+  { emp_id: 'EMP-0016', first_name: 'Carlos', last_name: 'Mendez', email: 'contractor@hrcore.io', department: 'Engineering', designation: 'Contractor', manager_email: 'teamlead@hrcore.io', employment_type: 'Contractor', join_date: '2023-04-12', status: 'active', salary_band: 'C3', location: 'Los Angeles', attendance_pct: 90 },
+  { emp_id: 'EMP-0017', first_name: 'Aisha', last_name: 'Khan', email: 'intern@hrcore.io', department: 'Engineering', designation: 'Intern', manager_email: 'teamlead@hrcore.io', employment_type: 'Intern', join_date: '2026-02-01', status: 'active', salary_band: 'I1', location: 'San Francisco', attendance_pct: 100 },
+  { emp_id: 'EMP-0018', first_name: 'Guest', last_name: 'User', email: 'readonly@hrcore.io', department: 'External', designation: 'Read-Only User', manager_email: 'superadmin@hrcore.io', employment_type: 'Temporary', join_date: '2025-01-01', status: 'active', salary_band: 'L8', location: 'Online', attendance_pct: 95 }
 ];
 
 export async function POST(request: NextRequest) {
@@ -41,52 +30,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if employees already exist
-    const { data: existingEmployees } = await supabase
-      .from('employees')
-      .select('id')
-      .limit(1);
+    const result = await withPgClient(async (client) => {
+      // 0. Clear existing employees
+      await client.query('DELETE FROM employees');
 
-    if (existingEmployees && existingEmployees.length > 0) {
-      const { data: countResult } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact' });
-      return NextResponse.json(
-        { 
-          message: 'Employees already seeded',
-          count: countResult?.length || 0
-        },
-        { status: 200 }
-      );
-    }
-
-    // Insert employees
-    let seededCount = 0;
-    let errorCount = 0;
-
-    for (const emp of employees) {
-      const { error } = await supabase
-        .from('employees')
-        .insert({
-          ...emp,
-          manager: emp.manager_email,
-        });
-
-      if (error) {
-        console.error(`Error inserting ${emp.email}:`, error.message);
-        errorCount++;
-      } else {
+      let seededCount = 0;
+      for (const emp of employees) {
+        await client.query(`
+          INSERT INTO employees (emp_id, first_name, last_name, email, department, designation, manager, employment_type, join_date, status, salary_band, location, attendance_pct)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        `, [
+          emp.emp_id, emp.first_name, emp.last_name, emp.email, emp.department, emp.designation,
+          emp.manager_email, emp.employment_type, emp.join_date, emp.status, emp.salary_band, emp.location, emp.attendance_pct
+        ]);
         seededCount++;
-        console.log(`Inserted employee: ${emp.first_name} ${emp.last_name}`);
       }
-    }
+      return seededCount;
+    });
 
     return NextResponse.json(
       { 
         success: true, 
-        message: `Successfully seeded ${seededCount} employees`,
-        seeded: seededCount,
-        errors: errorCount
+        message: `Successfully seeded ${result} employees`,
+        seeded: result,
+        errors: 0
       },
       { status: 200 }
     );
@@ -99,31 +66,20 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to check seed status
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('id', { count: 'exact' });
-
-    if (error) {
-      return NextResponse.json(
-        { seeded: false, count: 0, error: error.message },
-        { status: 500 }
-      );
-    }
-
-    const count = data?.length || 0;
-    return NextResponse.json(
-      { 
-        seeded: count > 0,
-        count: count,
-        message: count > 0 
-          ? `${count} employees have been seeded` 
-          : 'No employees found. POST to /api/seed/employees to seed data'
-      },
-      { status: 200 }
-    );
+    const data = await withPgClient(async (client) => {
+      const res = await client.query('SELECT COUNT(*) as count FROM employees');
+      return res.rows[0];
+    });
+    const count = parseInt(data.count) || 0;
+    return NextResponse.json({
+      seeded: count > 0,
+      count: count,
+      message: count > 0 
+        ? `${count} employees have been seeded` 
+        : 'No employees found. POST to /api/seed/employees to seed data'
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message, count: 0 },

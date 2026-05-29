@@ -62,6 +62,34 @@ export default function EmployeeDashboardView() {
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<any>(null);
+  const [managerName, setManagerName] = useState<string>('');
+  const [todayLogs, setTodayLogs] = useState<any[]>([]);
+
+  // Load attendance settings
+  useEffect(() => {
+    async function fetchSettings() {
+      try {
+        const res = await fetch('/api/attendance/settings');
+        if (res.ok) {
+          const data = await res.json();
+          setSettings(data);
+        }
+      } catch (err) {
+        console.error('Error fetching attendance settings:', err);
+      }
+    }
+    fetchSettings();
+  }, []);
+
+  const checkinAllowed = (() => {
+    if (!settings) return true; // Default to true while loading
+    if (!settings.enable_checkin_checkout) return false;
+    if (profile && Array.isArray(settings.checkin_checkout_allowed_tiers)) {
+      return settings.checkin_checkout_allowed_tiers.includes(Number(profile.tier));
+    }
+    return true;
+  })();
 
   // Attendance states
   const [isCheckedIn, setIsCheckedIn] = useState(false);
@@ -115,6 +143,23 @@ export default function EmployeeDashboardView() {
 
         if (emp) {
           setEmployee(emp);
+
+          // Fetch manager's name if manager contains email format (@)
+          if (emp.manager && emp.manager.includes('@')) {
+            const { data: mgr } = await supabase
+              .from('employees')
+              .select('first_name, last_name')
+              .eq('email', emp.manager)
+              .maybeSingle();
+            if (mgr) {
+              setManagerName(`${mgr.first_name} ${mgr.last_name}`);
+            } else {
+              setManagerName(emp.manager);
+            }
+          } else {
+            setManagerName(emp.manager || 'No Manager assigned');
+          }
+
           // Trigger related fetches
           fetchAttendanceStatus(emp.id);
           fetchLeaveData(emp.id);
@@ -134,29 +179,32 @@ export default function EmployeeDashboardView() {
   async function fetchAttendanceStatus(empId: string) {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const { data: log } = await supabase
+      const { data: logsData, error } = await supabase
         .from('checkin_checkout_logs')
         .select('*')
         .eq('employee_id', empId)
-        .gte('check_in_time', `${today}T00:00:00`)
-        .lte('check_in_time', `${today}T23:59:59`)
-        .order('check_in_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .gte('check_in_time', `${today}T00:00:00.000Z`)
+        .lte('check_in_time', `${today}T23:59:59.999Z`)
+        .order('check_in_time', { ascending: true });
 
-      if (log) {
-        setCheckInTime(log.check_in_time);
-        setIsCheckedIn(!log.check_out_time);
-        if (log.check_out_time) {
-          const diffMin = log.duration_minutes || 0;
-          setWorkDuration(`${Math.floor(diffMin / 60)}h ${diffMin % 60}m`);
-        } else {
-          startDurationTimer(log.check_in_time);
-        }
+      if (error) throw error;
+
+      const logsList = logsData || [];
+      setTodayLogs(logsList);
+
+      const activeLog = logsList.find(log => !log.check_out_time);
+
+      if (activeLog) {
+        setIsCheckedIn(true);
+        setCheckInTime(activeLog.check_in_time);
+        startLiveDurationTimer(logsList, activeLog.check_in_time);
       } else {
         setIsCheckedIn(false);
         setCheckInTime(null);
-        setWorkDuration('0h 0m');
+        const totalMin = logsList.reduce((acc, l) => acc + (l.duration_minutes || 0), 0);
+        const hrs = Math.floor(totalMin / 60);
+        const mins = totalMin % 60;
+        setWorkDuration(`${hrs}h ${mins}m 0s`);
       }
     } catch (err) {
       console.error('Error fetching checkin status:', err);
@@ -165,18 +213,31 @@ export default function EmployeeDashboardView() {
     }
   }
 
-  // Live work duration timer
-  function startDurationTimer(checkInStr: string) {
+  // Live work duration timer (updating every second)
+  function startLiveDurationTimer(allLogs: any[], activeCheckInStr: string) {
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
 
+    const completedMs = allLogs
+      .filter(l => l.check_out_time)
+      .reduce((acc, l) => {
+        const diff = new Date(l.check_out_time).getTime() - new Date(l.check_in_time).getTime();
+        return acc + diff;
+      }, 0);
+
     const updateTimer = () => {
-      const diffMs = new Date().getTime() - new Date(checkInStr).getTime();
-      const diffMin = Math.floor(diffMs / 60000);
-      setWorkDuration(`${Math.floor(diffMin / 60)}h ${diffMin % 60}m`);
+      const liveMs = new Date().getTime() - new Date(activeCheckInStr).getTime();
+      const totalMs = completedMs + liveMs;
+      
+      const totalSeconds = Math.floor(totalMs / 1000);
+      const hrs = Math.floor(totalSeconds / 3600);
+      const mins = Math.floor((totalSeconds % 3600) / 60);
+      const secs = totalSeconds % 60;
+
+      setWorkDuration(`${hrs}h ${mins}m ${secs}s`);
     };
 
     updateTimer();
-    durationIntervalRef.current = setInterval(updateTimer, 60000);
+    durationIntervalRef.current = setInterval(updateTimer, 1000);
   }
 
   useEffect(() => {
@@ -347,7 +408,7 @@ export default function EmployeeDashboardView() {
       setCheckInTime(now);
       setCheckInNotes('');
       toast.success('Successfully checked in!');
-      startDurationTimer(now);
+      fetchAttendanceStatus(employee.id);
     } catch (err) {
       console.error(err);
       toast.error('Failed to check in');
@@ -528,6 +589,81 @@ export default function EmployeeDashboardView() {
     );
   }
 
+  // Render timeline bar for today's logs
+  const renderTimelineBar = () => {
+    if (todayLogs.length === 0) return null;
+
+    const segments: { left: number; width: number; key: string }[] = [];
+    const now = new Date();
+
+    todayLogs.forEach((log) => {
+      const checkIn = new Date(log.check_in_time);
+      const checkOut = log.check_out_time ? new Date(log.check_out_time) : now;
+
+      // Calculate minutes from midnight (00:00)
+      const startMin = checkIn.getHours() * 60 + checkIn.getMinutes();
+      const endMin = checkOut.getHours() * 60 + checkOut.getMinutes();
+
+      // Convert to percentages of a 24-hour day (1440 minutes)
+      const left = (startMin / 1440) * 100;
+      const width = Math.max(1, ((endMin - startMin) / 1440) * 100);
+
+      segments.push({ left, width, key: log.id });
+    });
+
+    return (
+      <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+        <p className="text-[10px] text-slate-400 uppercase font-black tracking-wider text-left">Today's Timeline Bar</p>
+        
+        {/* Timeline Bar Track */}
+        <div className="relative w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+          {segments.map((seg) => (
+            <div
+              key={seg.key}
+              className="absolute top-0 h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full"
+              style={{ left: `${seg.left}%`, width: `${seg.width}%` }}
+            />
+          ))}
+        </div>
+
+        {/* Labels under track */}
+        <div className="flex justify-between text-[9px] text-slate-400 font-mono-data">
+          <span>12 AM</span>
+          <span>6 AM</span>
+          <span>12 PM</span>
+          <span>6 PM</span>
+          <span>12 AM</span>
+        </div>
+
+        {/* List of sessions */}
+        <div className="space-y-2 mt-2 max-h-24 overflow-y-auto pr-1 scrollbar-thin text-left">
+          {todayLogs.map((log, index) => {
+            const inTime = new Date(log.check_in_time);
+            const outTime = log.check_out_time ? new Date(log.check_out_time) : null;
+            const durationMin = log.duration_minutes || (outTime ? Math.max(1, Math.floor((outTime.getTime() - inTime.getTime()) / 60000)) : Math.max(1, Math.floor((new Date().getTime() - inTime.getTime()) / 60000)));
+            const durationStr = `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`;
+
+            return (
+              <div key={log.id} className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-100 rounded-lg text-[10px]">
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-700">
+                    Session {index + 1} ({log.location})
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-mono-data mt-0.5">
+                    {format(inTime, 'hh:mm a')} - {outTime ? format(outTime, 'hh:mm a') : 'Active'}
+                  </p>
+                </div>
+                <span className="font-bold text-slate-600 flex-shrink-0 bg-white border border-slate-100 px-1.5 py-0.5 rounded">
+                  {durationStr}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const initials = (employee.first_name[0] + employee.last_name[0]).toUpperCase();
   const avatarColors = [
     'bg-blue-600', 'bg-violet-600', 'bg-emerald-600', 'bg-amber-600',
@@ -638,10 +774,20 @@ export default function EmployeeDashboardView() {
           </div>
 
           <div className="mt-6">
+            {!checkinAllowed && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-xs flex items-start gap-2 mt-3 mb-1">
+                <Icon name="ExclamationTriangleIcon" size={14} className="flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Check-in restricted</p>
+                  <p className="mt-0.5">Logging attendance is currently disabled or restricted for your role by company policy.</p>
+                </div>
+              </div>
+            )}
+
             {isCheckedIn ? (
               <button
                 onClick={handleCheckOut}
-                disabled={attendanceLoading}
+                disabled={attendanceLoading || !checkinAllowed}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold shadow-sm transition active:scale-95 disabled:opacity-50"
               >
                 {attendanceLoading && <Icon name="ArrowPathIcon" size={14} className="animate-spin" />}
@@ -651,7 +797,7 @@ export default function EmployeeDashboardView() {
             ) : (
               <button
                 onClick={handleCheckIn}
-                disabled={attendanceLoading}
+                disabled={attendanceLoading || !checkinAllowed}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold shadow-sm transition active:scale-95 disabled:opacity-50"
               >
                 {attendanceLoading && <Icon name="ArrowPathIcon" size={14} className="animate-spin" />}
@@ -660,6 +806,7 @@ export default function EmployeeDashboardView() {
               </button>
             )}
           </div>
+          {renderTimelineBar()}
         </div>
 
         {/* Panel B: My Profile Card */}
@@ -677,7 +824,7 @@ export default function EmployeeDashboardView() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Reports To</p>
-                  <p className="text-sm font-semibold text-slate-700 truncate">{employee.manager || 'No Manager assigned'}</p>
+                  <p className="text-sm font-semibold text-slate-700 truncate">{managerName || 'No Manager assigned'}</p>
                 </div>
               </div>
 
