@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 import { differenceInMinutes, parseISO } from 'date-fns';
 
 export async function POST(
@@ -19,8 +19,8 @@ export async function POST(
     }
 
     // Authenticate user
-    const { data: { session } } = await conn.client.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, conn.client);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -28,7 +28,7 @@ export async function POST(
     const profileRes = await conn.client
       .from('users')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     const role = profileRes?.data?.role || 'Employee';

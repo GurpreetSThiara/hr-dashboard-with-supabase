@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerUser } from '@/lib/supabase/server';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -38,8 +39,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, supabase);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     // Log activity
     await supabase.from('activity_feed').insert([{
-      user_email: session.user.email,
+      user_email: user.email,
       action: 'created_employee',
       description: `Created employee: ${body.first_name} ${body.last_name}`,
       target_id: data.id,

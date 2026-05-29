@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 
 // GET — Retrieve active attendance settings
 export async function GET() {
@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate user
-    const { data: { session } } = await conn.client.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, conn.client);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const profileRes = await conn.client
       .from('users')
       .select('tier')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     const tier = profileRes?.data?.tier ?? 15;
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
         checkin_checkout_allowed_tiers || Array.from({ length: 18 }, (_, i) => i + 1),
         enable_checkin_checkout !== false,
         enable_regularizations !== false,
-        session.user.email || 'admin'
+        user.email || 'admin'
       ]);
       return res.rows[0];
     });

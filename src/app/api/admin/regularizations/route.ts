@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 
 // GET — Retrieve all pending or recent regularization requests (Admin/HR access)
 export async function GET(request: NextRequest) {
@@ -10,8 +10,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
     }
 
-    const { data: { session } } = await conn.client.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, conn.client);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const profileRes = await conn.client
       .from('users')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     const role = profileRes?.data?.role || 'Employee';

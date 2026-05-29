@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase, envMisconfiguredError } from '@/lib/supabase/server';
+import { getServerSupabase, envMisconfiguredError, getServerUser } from '@/lib/supabase/server';
 import { withPgClient } from '@/lib/pgClient';
 
 const TIER_TO_ROLE: Record<number, string> = {
@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
     let sessionUserEmail: string | null = null;
     if (conn) {
       try {
-        const { data: { session } } = await conn.client.auth.getSession();
-        sessionUserEmail = session?.user?.email ?? null;
+        const user = await getServerUser(request, conn.client);
+        sessionUserEmail = user?.email ?? null;
       } catch {
         // Non-fatal if session cannot be parsed
       }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,11 +51,11 @@ export async function POST(request: NextRequest) {
     let sessionUserEmail: string | null = null;
 
     if (conn) {
-      const { data: { session } } = await conn.client.auth.getSession();
-      if (!session?.user) {
+      const user = await getServerUser(request, conn.client);
+      if (!user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      sessionUserEmail = session.user.email ?? null;
+      sessionUserEmail = user.email ?? null;
     }
 
     const body = await request.json();

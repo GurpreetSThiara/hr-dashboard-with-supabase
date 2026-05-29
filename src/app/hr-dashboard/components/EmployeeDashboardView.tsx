@@ -52,8 +52,9 @@ interface PeerInfo {
   last_name: string;
   designation: string;
   status: string; // active, onleave, onboarding
-  presenceStatus: 'Present' | 'WFH' | 'On Leave' | 'Not Checked In';
+  presenceStatus: 'Present' | 'WFH' | 'On Leave' | 'Not Checked In' | 'Checked Out' | 'Out';
   checkInTime?: string;
+  checkOutTime?: string;
 }
 
 export default function EmployeeDashboardView() {
@@ -367,14 +368,20 @@ export default function EmployeeDashboardView() {
       const peerList: PeerInfo[] = employees.map(emp => {
         let presenceStatus: PeerInfo['presenceStatus'] = 'Not Checked In';
         let checkInTime: string | undefined;
+        let checkOutTime: string | undefined;
 
         if (leaveEmpIds.has(emp.id)) {
           presenceStatus = 'On Leave';
         } else {
           const log = logsMap.get(emp.id);
-          if (log && !log.check_out_time) {
-            presenceStatus = log.location === 'Home' ? 'WFH' : 'Present';
-            checkInTime = format(new Date(log.check_in_time), 'hh:mm a');
+          if (log) {
+            if (!log.check_out_time) {
+              presenceStatus = log.location === 'Home' ? 'WFH' : 'Present';
+              checkInTime = format(new Date(log.check_in_time), 'hh:mm a');
+            } else {
+              presenceStatus = 'Checked Out';
+              checkOutTime = format(new Date(log.check_out_time), 'hh:mm a');
+            }
           }
         }
 
@@ -386,7 +393,8 @@ export default function EmployeeDashboardView() {
           designation: emp.designation,
           status: emp.status,
           presenceStatus,
-          checkInTime
+          checkInTime,
+          checkOutTime
         };
       });
 
@@ -490,6 +498,7 @@ export default function EmployeeDashboardView() {
                       hour: '2-digit',
                       minute: '2-digit',
                     }),
+                    checkOutTime: undefined,
                   }
                 : p
             );
@@ -863,8 +872,18 @@ export default function EmployeeDashboardView() {
                 <Icon name="ClockIcon" size={16} className="text-blue-600" />
                 Work Attendance
               </h3>
-              <span className={`status-badge ${isCheckedIn ? 'status-active' : 'status-terminated'}`}>
-                {isCheckedIn ? 'Checked In' : 'Not Active'}
+              <span className={`status-badge ${
+                isCheckedIn 
+                  ? 'status-active' 
+                  : todayLogs.length > 0 
+                    ? 'status-pending' 
+                    : 'status-terminated'
+              }`}>
+                {isCheckedIn 
+                  ? 'Checked In' 
+                  : todayLogs.length > 0 
+                    ? 'Checked Out' 
+                    : 'Not Active'}
               </span>
             </div>
 
@@ -1038,7 +1057,9 @@ export default function EmployeeDashboardView() {
                     'Present': 'bg-emerald-500 ring-emerald-100',
                     'WFH': 'bg-sky-500 ring-sky-100',
                     'On Leave': 'bg-purple-500 ring-purple-100',
-                    'Not Checked In': 'bg-slate-300 ring-slate-100'
+                    'Not Checked In': 'bg-slate-300 ring-slate-100',
+                    'Checked Out': 'bg-orange-500 ring-orange-100',
+                    'Out': 'bg-orange-500 ring-orange-100'
                   };
                   return (
                     <div key={peer.id} className="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-slate-50 transition border border-slate-100/50">
@@ -1053,11 +1074,15 @@ export default function EmployeeDashboardView() {
                           <span className={`w-2.5 h-2.5 rounded-full ring-4 ${statusColors[peer.presenceStatus]}`} />
                           {peer.presenceStatus}
                         </span>
-                        {peer.checkInTime && (
+                        {peer.presenceStatus === 'Checked Out' && peer.checkOutTime ? (
+                          <span className="text-[10px] text-slate-400 font-mono-data">
+                            Checked out: {peer.checkOutTime}
+                          </span>
+                        ) : peer.checkInTime ? (
                           <span className="text-[10px] text-slate-400 font-mono-data">
                             Checked in: {peer.checkInTime}
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -1109,7 +1134,7 @@ export default function EmployeeDashboardView() {
             {Object.entries(leaveBalances).map(([type, bal]) => {
               const usedPct = bal.total > 0 ? (bal.used / bal.total) * 100 : 0;
               return (
-                <div key={type} className="border border-slate-200 hover:border-slate-300 bg-slate-50/30 p-4.5 rounded-xl transition duration-150 flex flex-col justify-between">
+                <div key={type} className="border border-slate-200 hover:border-slate-300 bg-slate-50/30 p-5 rounded-xl transition duration-150 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider truncate mr-2">{type}</span>
@@ -1172,7 +1197,7 @@ export default function EmployeeDashboardView() {
         </div>
 
         {/* Requests List */}
-        <div className="divide-y divide-slate-150">
+        <div className="divide-y divide-slate-200">
           {filteredLeaves.length === 0 ? (
             <EmptyState
               icon="CalendarIcon"
@@ -1258,7 +1283,7 @@ export default function EmployeeDashboardView() {
       {isLeaveModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden animate-fade-in">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-150 bg-slate-50/50">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/50">
               <h3 className="font-bold text-slate-900 flex items-center gap-2">
                 <Icon name="CalendarDaysIcon" size={18} className="text-blue-600" />
                 Apply for Leave

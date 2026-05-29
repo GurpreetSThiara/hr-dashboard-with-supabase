@@ -1,24 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 import { differenceInDays, parseISO, format } from 'date-fns';
 
 // GET — Retrieve regularization requests for the current logged-in employee
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const conn = getServerSupabase();
     if (!conn) {
       return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
     }
 
-    const { data: { session } } = await conn.client.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, conn.client);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const result = await withPgClient(async (client) => {
       // 1. Find employee
-      const empRes = await client.query("SELECT id FROM employees WHERE email = $1", [session.user.email]);
+      const empRes = await client.query("SELECT id FROM employees WHERE email = $1", [user.email]);
       const emp = empRes.rows[0];
       if (!emp) return [];
 
@@ -44,8 +44,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
     }
 
-    const { data: { session } } = await conn.client.auth.getSession();
-    if (!session?.user) {
+    const user = await getServerUser(request, conn.client);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       }
 
       // 3. Find employee record
-      const empRes = await client.query("SELECT id, first_name, last_name FROM employees WHERE email = $1", [session.user.email]);
+      const empRes = await client.query("SELECT id, first_name, last_name FROM employees WHERE email = $1", [user.email]);
       const emp = empRes.rows[0];
       if (!emp) {
         throw new Error('Employee profile not found. Please contact an admin.');
