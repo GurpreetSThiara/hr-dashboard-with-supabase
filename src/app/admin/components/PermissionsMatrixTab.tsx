@@ -46,7 +46,8 @@ const ROLES: RoleMeta[] = [
 ];
 
 const PERMISSIONS: Record<string, PermInfo> = {
-  view_dashboard:    { label: 'View Dashboard',         description: 'Access the main HR dashboard with metrics and analytics', category: 'view' },
+  view_dashboard:    { label: 'View Dashboard',         description: 'Access the main dashboard page',                                      category: 'view' },
+  view_hr_dashboard: { label: 'View HR Analytics Dashboard', description: 'Access the company-wide HR metrics, headcount, and analytics widgets. If disabled, users see the self-service dashboard.', category: 'view' },
   view_employees:    { label: 'View Employee Directory', description: 'Browse the employee list and view profiles',              category: 'view' },
   view_leaves:       { label: 'View Leave Requests',     description: 'See leave requests and the leave calendar',               category: 'view' },
   view_attendance:   { label: 'View Attendance',         description: 'Access attendance records and check-in/out logs',         category: 'view' },
@@ -67,6 +68,7 @@ const CATEGORIES = [
 
 const DEFAULT_MATRIX: PermMatrix = {
   view_dashboard:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
+  view_hr_dashboard:[1,2,3,4,5,6,7,8,9,10,11],
   view_employees:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
   manage_employees: [1,2,3,4,5,6,7],
   view_leaves:      [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],

@@ -75,7 +75,15 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   const visibleItems = NAV_ITEMS.filter(item =>
     !item.requiredPermission || hasPermission(item.requiredPermission)
-  );
+  ).map(item => {
+    if (item.id === 'nav-dashboard') {
+      return {
+        ...item,
+        label: hasPermission('view_hr_dashboard') ? 'HR Dashboard' : 'My Dashboard',
+      };
+    }
+    return item;
+  });
 
   const userEmail = profile?.email || user?.email || '';
   const userName = profile?.full_name || (userEmail ? userEmail.split('@')[0] : 'User');

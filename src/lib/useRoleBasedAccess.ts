@@ -2,6 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export type Permission =
   | 'view_dashboard'
+  | 'view_hr_dashboard'
   | 'view_employees'
   | 'manage_employees'
   | 'view_leaves'
@@ -24,6 +25,7 @@ export const ROLE_TIERS: Record<string, number> = {
 // Hardcoded defaults — used when the DB has no custom config or is unreachable
 const DEFAULT_PERMISSIONS: Record<Permission, number[]> = {
   view_dashboard:    [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
+  view_hr_dashboard: [1,2,3,4,5,6,7,8,9,10,11],
   view_employees:    [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
   manage_employees:  [1,2,3,4,5,6,7],
   view_leaves:       [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
@@ -44,7 +46,8 @@ export function useRoleBasedAccess() {
 
   function hasPermission(permission: Permission): boolean {
     if (!tier) return false;
-    const allowedTiers = activePermissions[permission];
+    // Fallback to DEFAULT_PERMISSIONS if the custom configuration doesn't have this key yet
+    const allowedTiers = activePermissions[permission] || DEFAULT_PERMISSIONS[permission];
     if (!allowedTiers) return false;
     return allowedTiers.includes(tier);
   }

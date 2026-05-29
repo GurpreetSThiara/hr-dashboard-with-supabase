@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, envMisconfiguredError } from '@/lib/supabase/server';
+import { withPgClient } from '@/lib/pgClient';
 
 const TIER_TO_ROLE: Record<number, string> = {
   1: 'Super Admin', 2: 'Owner', 3: 'Admin', 4: 'HR Admin', 5: 'HR Manager',
@@ -10,6 +11,7 @@ const TIER_TO_ROLE: Record<number, string> = {
 
 const DEFAULT_PERMISSIONS: Record<string, number[]> = {
   view_dashboard:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
+  view_hr_dashboard:[1,2,3,4,5,6,7,8,9,10,11],
   view_employees:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
   manage_employees: [1,2,3,4,5,6,7],
   view_leaves:      [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
@@ -40,14 +42,20 @@ export async function GET() {
     }
 
     const matrix: Record<string, number[]> = {};
+    const foundPermissions = new Set<string>();
+
     data.forEach((row: any) => {
       if (!matrix[row.permission]) matrix[row.permission] = [];
       matrix[row.permission].push(row.tier);
+      foundPermissions.add(row.permission);
     });
 
-    // Ensure all permission keys exist (even if currently empty)
+    // For any permission key not present in the DB configuration, fallback to the hardcoded default.
+    // This allows newly introduced permissions to be resolved correctly until saved in the DB.
     Object.keys(DEFAULT_PERMISSIONS).forEach(p => {
-      if (!matrix[p]) matrix[p] = [];
+      if (!foundPermissions.has(p)) {
+        matrix[p] = [...DEFAULT_PERMISSIONS[p]];
+      }
     });
 
     return NextResponse.json({ matrix, isDefault: false });
@@ -60,14 +68,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const conn = getServerSupabase();
-    if (!conn || !conn.hasServiceRole) {
-      return NextResponse.json(
-        envMisconfiguredError('Saving permissions requires SUPABASE_SERVICE_ROLE_KEY to bypass RLS.'),
-        { status: 503 }
-      );
+    let sessionUserEmail: string | null = null;
+    if (conn) {
+      try {
+        const { data: { session } } = await conn.client.auth.getSession();
+        sessionUserEmail = session?.user?.email ?? null;
+      } catch {
+        // Non-fatal if session cannot be parsed
+      }
     }
-    const supabase = conn.client;
-    const { data: { session } } = await supabase.auth.getSession();
 
     const body = await request.json();
     const { matrix, updatedBy } = body as {
@@ -125,18 +134,54 @@ export async function POST(request: NextRequest) {
           tier: t,
           role_name: TIER_TO_ROLE[t],
           allowed: tierSet.has(t),
-          updated_by: updatedBy || session?.user?.email || 'system',
+          updated_by: updatedBy || sessionUserEmail || 'system',
           updated_at: now,
         });
       }
     }
 
-    // Upsert all rows (replaces existing on permission+tier conflict)
-    const { error: upsertError } = await supabase
-      .from('role_permissions')
-      .upsert(rows, { onConflict: 'permission,tier' });
+    // Check if we can write via PostgreSQL directly
+    const hasPostgresUrl = !!process.env.POSTGRES_URL;
 
-    if (upsertError) throw upsertError;
+    if (hasPostgresUrl) {
+      await withPgClient(async (client) => {
+        const queryParts: string[] = [];
+        const values: any[] = [];
+        let valIndex = 1;
+
+        for (const row of rows) {
+          queryParts.push(`($${valIndex}, $${valIndex+1}, $${valIndex+2}, $${valIndex+3}, $${valIndex+4}, $${valIndex+5})`);
+          values.push(row.permission, row.tier, row.role_name, row.allowed, row.updated_by, row.updated_at);
+          valIndex += 6;
+        }
+
+        const sql = `
+          INSERT INTO role_permissions (permission, tier, role_name, allowed, updated_by, updated_at)
+          VALUES ${queryParts.join(', ')}
+          ON CONFLICT (permission, tier) 
+          DO UPDATE SET 
+            allowed = EXCLUDED.allowed, 
+            role_name = EXCLUDED.role_name, 
+            updated_by = EXCLUDED.updated_by, 
+            updated_at = EXCLUDED.updated_at
+        `;
+        
+        await client.query(sql, values);
+      });
+    } else {
+      // Fallback to Supabase client using Service Role Key
+      if (!conn || !conn.hasServiceRole) {
+        return NextResponse.json(
+          envMisconfiguredError('Saving permissions requires either a POSTGRES_URL or SUPABASE_SERVICE_ROLE_KEY.'),
+          { status: 503 }
+        );
+      }
+      const { error: upsertError } = await conn.client
+        .from('role_permissions')
+        .upsert(rows, { onConflict: 'permission,tier' });
+
+      if (upsertError) throw upsertError;
+    }
 
     return NextResponse.json({ success: true, savedAt: now });
   } catch (err: any) {

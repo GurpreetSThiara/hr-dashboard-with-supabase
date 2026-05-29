@@ -34,8 +34,13 @@ export default function AuthGuard({ children, requiredPermission, fallbackPath =
     }
 
     if (requiredPermission && !hasPermission(requiredPermission)) {
-      toast.error("You don't have access to this page.", { duration: 3000 });
-      router.replace(fallbackPath);
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+      if (fallbackPath && fallbackPath !== currentPath) {
+        toast.error("You don't have access to this page.", { duration: 3000 });
+        router.replace(fallbackPath);
+      } else {
+        console.warn(`AuthGuard: User lacks permission '${requiredPermission}' on ${currentPath || 'fallback path'}. Redirect loop prevented.`);
+      }
     }
   }, [loading, user, requiredPermission, hasPermission, router, fallbackPath]);
 
