@@ -3,16 +3,17 @@ import { withPgClient } from '@/lib/pgClient';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const activatedBy = body?.activated_by_email || null;
 
     const version = await withPgClient(async (client) => {
       const check = await client.query(
         'SELECT id, status, name FROM leave_policy_versions WHERE id = $1',
-        [params.id]
+        [id]
       );
       if (check.rows.length === 0) throw new Error('Version not found');
       if (check.rows[0].status === 'active') {
@@ -33,7 +34,7 @@ export async function POST(
              activated_by_email = $1, activated_at = NOW(), updated_at = NOW()
          WHERE id = $2
          RETURNING *`,
-        [activatedBy, params.id]
+        [activatedBy, id]
       );
 
       return res.rows[0];

@@ -30,9 +30,10 @@ async function getPgClient() {
 // PUT — update a user's role (by Super Admin)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { newRole, requesterId, requesterTier } = body as {
       newRole: string;
@@ -46,7 +47,7 @@ export async function PUT(
 
     const newTier = ROLE_TIER_MAP[newRole];
 
-    if (params.id === requesterId) {
+    if (id === requesterId) {
       return NextResponse.json({ error: 'You cannot change your own role.' }, { status: 422 });
     }
 
@@ -59,7 +60,7 @@ export async function PUT(
       const { data: targetUser, error: fetchError } = await supabase
         .from('users')
         .select('tier, role, email')
-        .eq('id', params.id)
+        .eq('id', id)
         .single();
 
       if (fetchError || !targetUser) {
@@ -85,12 +86,12 @@ export async function PUT(
       const { error: updateError } = await supabase
         .from('users')
         .update({ role: newRole, tier: newTier })
-        .eq('id', params.id);
+        .eq('id', id);
       if (updateError) throw updateError;
 
       // Best-effort auth metadata update
       try {
-        await supabase.auth.admin.updateUserById(params.id, {
+        await supabase.auth.admin.updateUserById(id, {
           user_metadata: { role: newRole, tier: newTier },
         });
       } catch {}
@@ -120,7 +121,7 @@ export async function PUT(
     try {
       const targetRes = await pgClient.query(
         'SELECT tier, role, email FROM public.users WHERE id = $1',
-        [params.id]
+        [id]
       );
       if (targetRes.rows.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -144,7 +145,7 @@ export async function PUT(
 
       await pgClient.query(
         'UPDATE public.users SET role = $1, tier = $2, updated_at = NOW() WHERE id = $3',
-        [newRole, newTier, params.id]
+        [newRole, newTier, id]
       );
 
       return NextResponse.json({ success: true, newRole, newTier });
@@ -159,13 +160,14 @@ export async function PUT(
 // DELETE — deactivate a user (sets role to Read-Only User / tier 18)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { requesterId, requesterTier } = body as { requesterId: string; requesterTier: number };
 
-    if (params.id === requesterId) {
+    if (id === requesterId) {
       return NextResponse.json({ error: 'You cannot deactivate yourself.' }, { status: 422 });
     }
 
@@ -178,7 +180,7 @@ export async function DELETE(
       const { data: targetUser } = await supabase
         .from('users')
         .select('tier, role')
-        .eq('id', params.id)
+        .eq('id', id)
         .single();
 
       if (!targetUser) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -192,7 +194,7 @@ export async function DELETE(
 
       // Disable in Supabase auth (best-effort)
       try {
-        await supabase.auth.admin.updateUserById(params.id, { ban_duration: '876600h' });
+        await supabase.auth.admin.updateUserById(id, { ban_duration: '876600h' });
       } catch {}
 
       return NextResponse.json({ success: true });
@@ -210,7 +212,7 @@ export async function DELETE(
     try {
       const targetRes = await pgClient.query(
         'SELECT tier, role FROM public.users WHERE id = $1',
-        [params.id]
+        [id]
       );
       if (targetRes.rows.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -227,7 +229,7 @@ export async function DELETE(
       // Mark user as deactivated by setting role to Read-Only User
       await pgClient.query(
         "UPDATE public.users SET role = 'Read-Only User', tier = 18, updated_at = NOW() WHERE id = $1",
-        [params.id]
+        [id]
       );
 
       return NextResponse.json({ success: true });

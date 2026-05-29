@@ -1,64 +1,40 @@
 import { NextResponse } from 'next/server';
 import { DEMO_USERS, PASSWORD_BY_TIER } from '@/lib/demoUsers';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { withPgClient } from '@/lib/pgClient';
 
-// GET — returns the actual seeded users from public.users so the login page
-// reflects DB state. Falls back to the static demoUsers config if the table
-// is empty or unreachable.
+function staticFallback(seeded = false) {
+  return DEMO_USERS.map(u => ({
+    id: null, email: u.email, full_name: u.full_name,
+    role: u.role, tier: u.tier, department: u.department, password: u.password,
+  }));
+}
+
 export async function GET() {
-  const conn = getServerSupabase();
-
-  // No Supabase configured at all → static fallback so login page still works
-  if (!conn) {
-    const users = DEMO_USERS.map(u => ({
-      id: null, email: u.email, full_name: u.full_name, role: u.role,
-      tier: u.tier, department: u.department, password: u.password,
-    }));
-    return NextResponse.json({ users, seeded: false, isFallback: true });
-  }
-
   try {
-    const { data, error } = await conn.client
-      .from('users')
-      .select('id, email, full_name, role, tier, department')
-      .like('email', '%@hrcore.io')
-      .order('tier', { ascending: true });
+    const rows = await withPgClient(async (client) => {
+      const res = await client.query(
+        `SELECT id, email, full_name, role, tier, department
+         FROM public.users
+         WHERE email LIKE '%@hrcore.io'
+         ORDER BY tier ASC`
+      );
+      return res.rows;
+    });
 
-    if (error) throw error;
+    const seeded = rows.length >= 18;
 
-    const seeded = (data || []).length >= 18;
-
-    if (!data || data.length === 0) {
-      // Fall back to the static config (so the UI still works pre-seed)
-      const users = DEMO_USERS.map(u => ({
-        id: null,
-        email: u.email,
-        full_name: u.full_name,
-        role: u.role,
-        tier: u.tier,
-        department: u.department,
-        password: u.password,
-      }));
-      return NextResponse.json({ users, seeded: false, isFallback: true });
+    if (rows.length === 0) {
+      return NextResponse.json({ users: staticFallback(), seeded: false, isFallback: true });
     }
 
-    const users = data.map(u => ({
+    const users = rows.map((u: any) => ({
       ...u,
       password: PASSWORD_BY_TIER[u.tier] || 'HRCore@demo',
     }));
 
     return NextResponse.json({ users, seeded, isFallback: false });
-  } catch (err: any) {
-    // Static fallback so the login page is never broken
-    const users = DEMO_USERS.map(u => ({
-      id: null,
-      email: u.email,
-      full_name: u.full_name,
-      role: u.role,
-      tier: u.tier,
-      department: u.department,
-      password: u.password,
-    }));
-    return NextResponse.json({ users, seeded: false, isFallback: true, error: err.message });
+  } catch {
+    // Static fallback so login page is never broken even if DB unreachable
+    return NextResponse.json({ users: staticFallback(), seeded: false, isFallback: true });
   }
 }

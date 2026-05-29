@@ -3,9 +3,10 @@ import { withPgClient } from '@/lib/pgClient';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { name, description, color, requires_document } = body;
 
@@ -20,7 +21,7 @@ export async function PUT(
          WHERE id = $5
          RETURNING *`,
         [name?.trim() || null, description ?? null, color || null,
-         requires_document ?? null, params.id]
+         requires_document ?? null, id]
       );
       if (res.rows.length === 0) throw new Error('Leave type not found');
       return res.rows[0];
@@ -37,14 +38,14 @@ export async function PUT(
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await withPgClient(async (client) => {
-      // Check if any rules reference this type
       const refRes = await client.query(
         'SELECT COUNT(*) FROM leave_policy_rules WHERE leave_type_id = $1',
-        [params.id]
+        [id]
       );
       if (parseInt(refRes.rows[0].count) > 0) {
         throw new Error('Cannot delete: this leave type is used in policy rules. Remove it from all policy versions first.');
@@ -52,7 +53,7 @@ export async function DELETE(
 
       const res = await client.query(
         'DELETE FROM leave_types WHERE id = $1 RETURNING id',
-        [params.id]
+        [id]
       );
       if (res.rows.length === 0) throw new Error('Leave type not found');
     });

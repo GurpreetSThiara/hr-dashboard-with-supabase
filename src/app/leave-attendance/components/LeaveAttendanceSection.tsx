@@ -211,7 +211,7 @@ export default function LeaveAttendanceSection() {
                     </span>
                     <StatusBadge
                       status={leave.status === 'pending' ? 'onboarding' : leave.status === 'approved' ? 'active' : 'terminated'}
-                      label={leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
+                      customLabel={leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
                     />
                   </div>
 

@@ -3,9 +3,10 @@ import { withPgClient } from '@/lib/pgClient';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const rules = await withPgClient(async (client) => {
       // Return all leave types with their rules for this version (null columns = no rule yet)
       const res = await client.query(
@@ -25,7 +26,7 @@ export async function GET(
          LEFT JOIN leave_policy_rules r
            ON r.leave_type_id = lt.id AND r.version_id = $1
          ORDER BY lt.name ASC`,
-        [params.id]
+        [id]
       );
       return res.rows;
     });
@@ -38,9 +39,10 @@ export async function GET(
 // PUT — replace all rules for this version
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { rules } = body as {
       rules: {
@@ -63,7 +65,7 @@ export async function PUT(
       // Check version exists and isn't superseded
       const check = await client.query(
         "SELECT status FROM leave_policy_versions WHERE id = $1",
-        [params.id]
+        [id]
       );
       if (check.rows.length === 0) throw new Error('Version not found');
       if (check.rows[0].status === 'superseded') {
@@ -75,7 +77,7 @@ export async function PUT(
         // Delete existing rules for this version
         await client.query(
           'DELETE FROM leave_policy_rules WHERE version_id = $1',
-          [params.id]
+          [id]
         );
 
         // Insert new rules
@@ -87,7 +89,7 @@ export async function PUT(
                 requires_document, pro_rata, created_at, updated_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
             [
-              params.id,
+              id,
               rule.leave_type_id,
               rule.leave_type_name,
               rule.days_per_year || 0,
@@ -103,7 +105,7 @@ export async function PUT(
         // Update version's updated_at
         await client.query(
           'UPDATE leave_policy_versions SET updated_at = NOW() WHERE id = $1',
-          [params.id]
+          [id]
         );
 
         await client.query('COMMIT');

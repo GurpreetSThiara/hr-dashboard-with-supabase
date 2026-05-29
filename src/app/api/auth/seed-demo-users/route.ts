@@ -77,10 +77,17 @@ export async function POST() {
 
         await pgClient.query(
           `UPDATE auth.users
-           SET encrypted_password = crypt($1, gen_salt('bf', 10)),
-               raw_user_meta_data = $2,
-               email_confirmed_at = COALESCE(email_confirmed_at, NOW()),
-               updated_at = NOW()
+           SET encrypted_password          = crypt($1, gen_salt('bf', 10)),
+               raw_user_meta_data          = $2,
+               email_confirmed_at          = COALESCE(email_confirmed_at, NOW()),
+               -- Supabase auth requires empty-string, not NULL, for these token columns
+               confirmation_token          = COALESCE(NULLIF(confirmation_token,''), ''),
+               recovery_token              = COALESCE(recovery_token, ''),
+               email_change_token_new      = COALESCE(email_change_token_new, ''),
+               email_change                = COALESCE(email_change, ''),
+               email_change_token_current  = COALESCE(email_change_token_current, ''),
+               reauthentication_token      = COALESCE(reauthentication_token, ''),
+               updated_at                  = NOW()
            WHERE id = $3`,
           [user.password, JSON.stringify(rawUserMetadata), userId]
         );
@@ -102,13 +109,17 @@ export async function POST() {
           `INSERT INTO auth.users (
              instance_id, id, aud, role, email, encrypted_password,
              email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-             is_super_admin, created_at, updated_at, is_sso_user, is_anonymous
+             is_super_admin, created_at, updated_at, is_sso_user, is_anonymous,
+             confirmation_token, recovery_token, email_change_token_new,
+             email_change, email_change_token_current, reauthentication_token,
+             phone_change, phone_change_token
            )
            VALUES (
              '00000000-0000-0000-0000-000000000000', $1, 'authenticated', 'authenticated', $2,
              crypt($3, gen_salt('bf', 10)), NOW(),
              '{"provider":"email","providers":["email"]}', $4,
-             false, NOW(), NOW(), false, false
+             false, NOW(), NOW(), false, false,
+             '', '', '', '', '', '', '', ''
            )`,
           [userId, user.email, user.password, JSON.stringify(rawUserMetadata)]
         );
@@ -117,10 +128,10 @@ export async function POST() {
         await pgClient.query(
           `INSERT INTO auth.identities (
              id, user_id, identity_data, provider, provider_id,
-             last_sign_in_at, created_at, updated_at
+             email, last_sign_in_at, created_at, updated_at
            )
-           VALUES ($1, $2, $3, 'email', $4, NOW(), NOW(), NOW())`,
-          [identityId, userId, JSON.stringify(rawUserMetadata), userId]
+           VALUES ($1, $2, $3, 'email', $4, $5, NOW(), NOW(), NOW())`,
+          [identityId, userId, JSON.stringify(rawUserMetadata), userId, user.email]
         );
         result.created++;
       }

@@ -1,58 +1,87 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  { auth: { persistSession: false } }
-);
+import { withPgClient } from '@/lib/pgClient';
+import { getServerSupabase } from '@/lib/supabase/server';
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('id', params.id)
-      .single();
-
-    if (error) throw error;
+    const { id } = await params;
+    const data = await withPgClient(async (client) => {
+      const res = await client.query(
+        'SELECT * FROM employees WHERE id = $1',
+        [id]
+      );
+      if (res.rows.length === 0) throw new Error('Employee not found');
+      return res.rows[0];
+    });
     return NextResponse.json(data);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 404 });
   }
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { id } = await params;
+
+    // Verify session via server supabase (optional — don't block if no supabase)
+    const conn = getServerSupabase();
+    let userEmail: string | null = null;
+    if (conn) {
+      const { data: { session } } = await conn.client.auth.getSession();
+      if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      userEmail = session.user.email ?? null;
     }
 
     const body = await request.json();
-    const { data, error } = await supabase
-      .from('employees')
-      .update(body)
-      .eq('id', params.id)
-      .select()
-      .single();
 
-    if (error) throw error;
+    const data = await withPgClient(async (client) => {
+      // Build dynamic SET clause from provided fields
+      const allowed = [
+        'first_name', 'last_name', 'email', 'phone', 'department',
+        'position', 'start_date', 'salary', 'status', 'avatar_url',
+        'address', 'city', 'country', 'bio', 'skills',
+      ];
+      const updates: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (key in body) {
+          updates.push(`${key} = $${idx++}`);
+          values.push(body[key]);
+        }
+      }
+      if (updates.length === 0) throw new Error('No valid fields to update');
+      updates.push(`updated_at = NOW()`);
+      values.push(id);
 
-    // Log activity
-    await supabase.from('activity_feed').insert([{
-      user_email: session.user.email,
-      action: 'updated_employee',
-      description: `Updated employee: ${data.first_name} ${data.last_name}`,
-      target_id: data.id,
-      target_type: 'employee',
-    }]);
+      const res = await client.query(
+        `UPDATE employees SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+        values
+      );
+      if (res.rows.length === 0) throw new Error('Employee not found');
+      return res.rows[0];
+    });
+
+    // Log activity fire-and-forget
+    if (conn) {
+      void Promise.resolve(
+        conn.client.from('activity_feed').insert([{
+          user_email: userEmail,
+          action: 'updated_employee',
+          description: `Updated employee: ${data.first_name} ${data.last_name}`,
+          target_id: data.id,
+          target_type: 'employee',
+        }])
+      ).catch(() => {});
+    }
 
     return NextResponse.json(data);
   } catch (error: any) {
@@ -61,37 +90,46 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { id } = await params;
+
+    // Verify session via server supabase (optional)
+    const conn = getServerSupabase();
+    let userEmail: string | null = null;
+    if (conn) {
+      const { data: { session } } = await conn.client.auth.getSession();
+      if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      userEmail = session.user.email ?? null;
     }
 
-    // Get employee info before deleting
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('first_name, last_name')
-      .eq('id', params.id)
-      .single();
+    const employee = await withPgClient(async (client) => {
+      const sel = await client.query(
+        'SELECT first_name, last_name FROM employees WHERE id = $1',
+        [id]
+      );
+      if (sel.rows.length === 0) throw new Error('Employee not found');
 
-    const { error } = await supabase
-      .from('employees')
-      .delete()
-      .eq('id', params.id);
+      await client.query('DELETE FROM employees WHERE id = $1', [id]);
+      return sel.rows[0];
+    });
 
-    if (error) throw error;
-
-    // Log activity
-    await supabase.from('activity_feed').insert([{
-      user_email: session.user.email,
-      action: 'deleted_employee',
-      description: `Deleted employee: ${employee?.first_name} ${employee?.last_name}`,
-      target_id: params.id,
-      target_type: 'employee',
-    }]);
+    // Log activity fire-and-forget
+    if (conn) {
+      void Promise.resolve(
+        conn.client.from('activity_feed').insert([{
+          user_email: userEmail,
+          action: 'deleted_employee',
+          description: `Deleted employee: ${employee.first_name} ${employee.last_name}`,
+          target_id: id,
+          target_type: 'employee',
+        }])
+      ).catch(() => {});
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

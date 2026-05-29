@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 const SEED_EMPLOYEES = [
   { emp_id: 'EMP-001', first_name: 'Sarah', last_name: 'Johnson', email: 'sarah.johnson@hrcore.io', department: 'Executive', designation: 'Chief Executive Officer', manager_email: null, employment_type: 'Full-Time', join_date: '2019-01-15', status: 'active', salary_band: 'L1', location: 'New York', attendance_pct: 98 },
@@ -28,7 +28,6 @@ const SEED_EMPLOYEES = [
 
 export default function SeedDataButton() {
   const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
   const supabase = createClient();
 
   const handleSeedEmployees = async () => {
@@ -41,11 +40,7 @@ export default function SeedDataButton() {
         .limit(1);
 
       if (existing && existing.length > 0) {
-        toast({
-          title: 'Data already exists',
-          description: 'Employees are already seeded in the database.',
-          variant: 'default',
-        });
+        toast.info('Employees are already seeded in the database.');
         setLoading(false);
         return;
       }
@@ -65,22 +60,14 @@ export default function SeedDataButton() {
         }
       }
 
-      toast({
-        title: 'Seed successful',
-        description: `Successfully added ${seededCount} employees to the database.`,
-        variant: 'default',
-      });
+      toast.success(`Successfully added ${seededCount} employees to the database.`);
 
       // Reload page to show updated data
       setTimeout(() => {
         window.location.reload();
       }, 1500);
     } catch (error: any) {
-      toast({
-        title: 'Seed failed',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(`Seed failed: ${error.message}`);
     } finally {
       setLoading(false);
     }

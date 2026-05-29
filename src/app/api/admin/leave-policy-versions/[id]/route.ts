@@ -3,19 +3,20 @@ import { withPgClient } from '@/lib/pgClient';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await withPgClient(async (client) => {
       const [vRes, rRes] = await Promise.all([
-        client.query('SELECT * FROM leave_policy_versions WHERE id = $1', [params.id]),
+        client.query('SELECT * FROM leave_policy_versions WHERE id = $1', [id]),
         client.query(
           `SELECT r.*, lt.color, lt.description AS type_description
            FROM leave_policy_rules r
            LEFT JOIN leave_types lt ON lt.id = r.leave_type_id
            WHERE r.version_id = $1
            ORDER BY r.leave_type_name ASC`,
-          [params.id]
+          [id]
         ),
       ]);
       if (vRes.rows.length === 0) throw new Error('Version not found');
@@ -29,17 +30,17 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { name, description, effective_date } = body;
 
     const version = await withPgClient(async (client) => {
-      // Can't edit an active or superseded version's core fields
       const check = await client.query(
         "SELECT status FROM leave_policy_versions WHERE id = $1",
-        [params.id]
+        [id]
       );
       if (check.rows.length === 0) throw new Error('Version not found');
       if (check.rows[0].status === 'superseded') {
@@ -54,7 +55,7 @@ export async function PUT(
              updated_at     = NOW()
          WHERE id = $4
          RETURNING *`,
-        [name?.trim() || null, description ?? null, effective_date || null, params.id]
+        [name?.trim() || null, description ?? null, effective_date || null, id]
       );
       return res.rows[0];
     });
@@ -67,20 +68,21 @@ export async function PUT(
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await withPgClient(async (client) => {
       const check = await client.query(
         "SELECT status, is_active FROM leave_policy_versions WHERE id = $1",
-        [params.id]
+        [id]
       );
       if (check.rows.length === 0) throw new Error('Version not found');
       if (check.rows[0].is_active) {
         throw new Error('Cannot delete the currently active policy. Activate another version first.');
       }
 
-      await client.query('DELETE FROM leave_policy_versions WHERE id = $1', [params.id]);
+      await client.query('DELETE FROM leave_policy_versions WHERE id = $1', [id]);
     });
 
     return NextResponse.json({ success: true });

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 
-// PUT — admin can edit any leave request
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { employee_name, employee_email, leave_type, start_date, end_date, reason, days_count, status } = body;
 
@@ -26,7 +26,7 @@ export async function PUT(
          RETURNING *`,
         [employee_name || null, employee_email || null, leave_type || null,
          start_date || null, end_date || null, reason || null,
-         days_count || null, status || null, params.id]
+         days_count || null, status || null, id]
       );
       if (res.rows.length === 0) throw new Error('Leave request not found');
       return res.rows[0];
@@ -38,16 +38,16 @@ export async function PUT(
   }
 }
 
-// DELETE — admin can remove a leave request
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await withPgClient(async (client) => {
       const res = await client.query(
         'DELETE FROM leave_requests WHERE id = $1 RETURNING id',
-        [params.id]
+        [id]
       );
       if (res.rows.length === 0) throw new Error('Leave request not found');
     });

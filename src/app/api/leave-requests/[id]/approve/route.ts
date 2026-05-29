@@ -4,9 +4,10 @@ import { getServerSupabase } from '@/lib/supabase/server';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const conn = getServerSupabase();
     let approverEmail: string | null = null;
 
@@ -32,7 +33,7 @@ export async function POST(
              approved_at = NOW(), updated_at = NOW()
          WHERE id = $4
          RETURNING *`,
-        [action, approver_notes || null, approverEmail, params.id]
+        [action, approver_notes || null, approverEmail, id]
       );
       if (res.rows.length === 0) throw new Error('Leave request not found');
       return res.rows[0];

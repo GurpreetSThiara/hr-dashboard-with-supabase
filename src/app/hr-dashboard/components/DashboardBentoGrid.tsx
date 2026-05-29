@@ -42,7 +42,7 @@ export default function DashboardBentoGrid() {
         const onLeave = employees?.filter((e: any) => e.status === 'onleave').length || 0;
         const onboarding = employees?.filter((e: any) => e.status === 'onboarding').length || 0;
         const presentToday = attendance?.filter((a: any) => a.status === 'present').length || 0;
-        const attendanceToday = totalHeadcount > 0 ? ((presentToday / totalHeadcount) * 100).toFixed(1) : 0;
+        const attendanceToday = totalHeadcount > 0 ? ((presentToday / totalHeadcount) * 100).toFixed(1) : '0';
 
         setMetrics({
           totalHeadcount,
@@ -136,7 +136,7 @@ export default function DashboardBentoGrid() {
           </div>
         </div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Attendance Today</p>
-        <p className="text-2xl font-bold text-slate-900 font-mono-data">{metrics.attendanceToday.toFixed(1)}%</p>
+        <p className="text-2xl font-bold text-slate-900 font-mono-data">{Number(metrics.attendanceToday).toFixed(1)}%</p>
         <p className="text-xs text-slate-500 mt-1">{metrics.activeEmployees} of {metrics.totalHeadcount} present</p>
         <div className="mt-3 w-full bg-slate-200 rounded-full h-1.5">
           <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${metrics.attendanceToday}%` }} />
