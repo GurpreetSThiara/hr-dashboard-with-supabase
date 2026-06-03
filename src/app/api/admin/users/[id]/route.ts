@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
+// @ts-ignore
+import pg from 'pg';
 
 const ROLE_TIER_MAP: Record<string, number> = {
   'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
@@ -11,13 +13,6 @@ const ROLE_TIER_MAP: Record<string, number> = {
 async function getPgClient() {
   const postgresUrl = process.env.POSTGRES_URL;
   if (!postgresUrl) return null;
-  let pg: any;
-  try {
-    // @ts-ignore
-    pg = await import('pg');
-  } catch {
-    return null;
-  }
   const PgClient = pg.default?.Client || pg.Client;
   const client = new PgClient({
     connectionString: postgresUrl,

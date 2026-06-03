@@ -1,15 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerUser } from '@/lib/supabase/server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  { auth: { persistSession: false } }
-);
+import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
+    const conn = getServerSupabase();
+    if (!conn) {
+      return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
+    }
+    const supabase = conn.client;
+
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
@@ -39,6 +38,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const conn = getServerSupabase();
+    if (!conn) {
+      return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
+    }
+    const supabase = conn.client;
     const user = await getServerUser(request, supabase);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

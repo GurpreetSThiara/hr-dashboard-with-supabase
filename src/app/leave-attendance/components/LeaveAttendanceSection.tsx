@@ -59,18 +59,22 @@ export default function LeaveAttendanceSection() {
     fetchUserRole();
   }, []);
 
-  // Fetch leave requests (memoised)
+  // Fetch leave requests via the permission-filtered API endpoint
   const fetchLeaves = useCallback(async () => {
     try {
       setLoading(true);
-      let query = supabase.from('leave_requests').select('*').order('created_at', { ascending: false });
-      if (activeTab !== 'all') query = query.eq('status', activeTab);
-      const { data, error } = await query;
-      if (error) throw error;
-      setLeaves(data || []);
-    } catch (err) {
+      const params = new URLSearchParams({ limit: '200' });
+      if (activeTab !== 'all') params.set('status', activeTab);
+      const res = await fetch(`/api/leave-requests?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to load leave requests');
+      }
+      const json = await res.json();
+      setLeaves(json.data || []);
+    } catch (err: any) {
       console.error('Error fetching leaves:', err);
-      toast.error('Failed to load leave requests');
+      toast.error(err.message || 'Failed to load leave requests');
     } finally {
       setLoading(false);
     }
@@ -80,41 +84,22 @@ export default function LeaveAttendanceSection() {
     fetchLeaves();
   }, [fetchLeaves]);
 
-  // ── Realtime: keep list in sync ────────────────────────────────────────────
+  // ── Realtime: invalidate + re-fetch so server-side visibility filtering applies ──
   useEffect(() => {
     const ch = supabase
       .channel('leave_section_live')
-
-      // New leave submitted → prepend if it matches the current tab filter
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_requests' }, (payload) => {
-        const row = payload.new as LeaveRequest;
-        if (activeTab === 'all' || row.status === activeTab) {
-          setLeaves((prev) => {
-            if (prev.some((l) => l.id === row.id)) return prev;
-            return [row, ...prev];
-          });
-        }
+      // On any change, re-fetch from the permission-aware API endpoint
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_requests' }, () => {
+        fetchLeaves();
       })
-
-      // Status / content changed → update or remove from current view
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leave_requests' }, (payload) => {
-        const row = payload.new as LeaveRequest;
-        setLeaves((prev) => {
-          const exists = prev.some((l) => l.id === row.id);
-          const matches = activeTab === 'all' || row.status === activeTab;
-          if (exists && matches) return prev.map((l) => (l.id === row.id ? { ...l, ...row } : l));
-          if (exists && !matches) return prev.filter((l) => l.id !== row.id);
-          if (!exists && matches) return [row, ...prev];
-          return prev;
-        });
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leave_requests' }, () => {
+        fetchLeaves();
       })
-
-      // Deleted → remove
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'leave_requests' }, (payload) => {
+        // Optimistic remove; fetchLeaves would also catch this
         const row = payload.old as { id: string };
         setLeaves((prev) => prev.filter((l) => l.id !== row.id));
       })
-
       .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
 
     channelRef.current = ch;
@@ -123,7 +108,7 @@ export default function LeaveAttendanceSection() {
       channelRef.current = null;
       setIsLive(false);
     };
-  }, [activeTab]);
+  }, [activeTab, fetchLeaves]);
 
   // Role-based permission checks
   const APPROVER_ROLES = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'];

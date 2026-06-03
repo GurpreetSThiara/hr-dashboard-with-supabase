@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
+// @ts-ignore
+import pg from 'pg';
 
 async function getPgClient() {
   const postgresUrl = process.env.POSTGRES_URL;
   if (!postgresUrl) return null;
-  let pg: any;
-  try {
-    // @ts-ignore
-    pg = await import('pg');
-  } catch {
-    return null;
-  }
   const PgClient = pg.default?.Client || pg.Client;
   const client = new PgClient({
     connectionString: postgresUrl,

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { DEMO_USERS } from '@/lib/demoUsers';
+// @ts-ignore
+import pg from 'pg';
 
 // POST — Idempotent seed of all 18 demo users.
 // Uses direct PostgreSQL access via POSTGRES_URL (same approach as
@@ -15,18 +17,6 @@ export async function POST() {
         error: 'POSTGRES_URL is not configured on the server.',
         hint: 'Add POSTGRES_URL to your .env file. Get it from Supabase Dashboard → Project Settings → Database → Connection string (URI).',
       },
-      { status: 500 }
-    );
-  }
-
-  // Dynamically import pg so the route file never crashes at module load
-  let pg: any;
-  try {
-    // @ts-ignore — pg types not bundled; dynamic load
-    pg = await import('pg');
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: `Failed to load pg driver: ${err.message}` },
       { status: 500 }
     );
   }

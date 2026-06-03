@@ -1,11 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  { auth: { persistSession: false } }
-);
 
 const employees = [
   // CEO
@@ -58,6 +53,10 @@ export async function POST(request: Request) {
     if (!authHeader?.includes('Bearer') && authHeader !== 'admin-key') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
     console.log('Starting comprehensive data seeding...');
 
