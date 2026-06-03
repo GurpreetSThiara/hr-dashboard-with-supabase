@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
+import { requireAdmin, authError, ROLE_TIER_MAP } from '@/lib/apiAuth';
 // @ts-ignore
 import pg from 'pg';
-
-const ROLE_TIER_MAP: Record<string, number> = {
-  'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
-  'HR Executive': 6, 'Recruiter': 7, 'Payroll Manager': 8, 'Finance': 9,
-  'Compliance': 10, 'IT Ops': 11, 'Director': 12, 'Manager': 13,
-  'Team Lead': 14, 'Employee': 15, 'Contractor': 16, 'Intern': 17, 'Read-Only User': 18,
-};
 
 async function getPgClient() {
   const postgresUrl = process.env.POSTGRES_URL;
@@ -28,13 +22,15 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // SECURITY: requester identity + tier come from the verified session,
+    // NOT from the request body. Only admin_panel roles (tier ≤ 2) may change roles.
+    const actor = await requireAdmin(request);
+    const requesterId = actor.userId;
+    const requesterTier = actor.tier;
+
     const { id } = await params;
     const body = await request.json();
-    const { newRole, requesterId, requesterTier } = body as {
-      newRole: string;
-      requesterId: string;
-      requesterTier: number;
-    };
+    const { newRole } = body as { newRole: string };
 
     if (!newRole || !ROLE_TIER_MAP[newRole]) {
       return NextResponse.json({ error: 'Invalid role name' }, { status: 400 });
@@ -148,6 +144,8 @@ export async function PUT(
       await pgClient.end().catch(() => {});
     }
   } catch (err: any) {
+    const authResp = authError(err);
+    if (authResp) return authResp;
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
@@ -158,9 +156,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // SECURITY: requester identity + tier from verified session only.
+    const actor = await requireAdmin(request);
+    const requesterId = actor.userId;
+    const requesterTier = actor.tier;
+
     const { id } = await params;
-    const body = await request.json();
-    const { requesterId, requesterTier } = body as { requesterId: string; requesterTier: number };
 
     if (id === requesterId) {
       return NextResponse.json({ error: 'You cannot deactivate yourself.' }, { status: 422 });
@@ -232,6 +233,8 @@ export async function DELETE(
       await pgClient.end().catch(() => {});
     }
   } catch (err: any) {
+    const authResp = authError(err);
+    if (authResp) return authResp;
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

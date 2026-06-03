@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireAuth, requireManagePolicies, authError } from '@/lib/apiAuth';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireAuth(request);
     const { id } = await params;
     const rules = await withPgClient(async (client) => {
       // Return all leave types with their rules for this version (null columns = no rule yet)
@@ -32,6 +34,8 @@ export async function GET(
     });
     return NextResponse.json({ rules });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -42,6 +46,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireManagePolicies(request);
     const { id } = await params;
     const body = await request.json();
     const { rules } = body as {
@@ -117,6 +122,8 @@ export async function PUT(
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

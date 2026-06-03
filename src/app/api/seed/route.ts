@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireSeedAccess, authError } from '@/lib/apiAuth';
 
 const EMPLOYEES_DATA = [
   { emp_id: 'EMP-0001', first_name: 'Sarah', last_name: 'Anderson', email: 'superadmin@hrcore.io', department: 'Executive', designation: 'Super Admin', employment_type: 'Full-Time', manager: null, join_date: '2018-01-10', status: 'active', attendance_pct: 99, salary_band: 'L1', location: 'New York' },
@@ -22,10 +23,18 @@ const EMPLOYEES_DATA = [
   { emp_id: 'EMP-0018', first_name: 'Guest', last_name: 'User', email: 'readonly@hrcore.io', department: 'External', designation: 'Read-Only User', employment_type: 'Temporary', manager: 'Sarah Anderson', join_date: '2025-01-01', status: 'active', attendance_pct: 95, salary_band: 'L8', location: 'Online' }
 ];
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    // SECURITY: destructive full reset — Super Admin or valid SEED_SECRET only.
+    await requireSeedAccess(request);
+
     const result = await withPgClient(async (client) => {
-      // 0. Clear existing employees (which cascades to leave requests, logs, and attendance)
+      // 0. Clear dependent records first, then employees.
+      //    (employees→children FKs are ON DELETE RESTRICT, so children must go first.)
+      await client.query('DELETE FROM leave_requests');
+      await client.query('DELETE FROM checkin_checkout_logs');
+      await client.query('DELETE FROM attendance_regularizations');
+      await client.query('DELETE FROM attendance_records');
       await client.query('DELETE FROM employees');
 
       // 1. Upsert employees
@@ -156,6 +165,8 @@ export async function POST() {
 
     return NextResponse.json({ success: true, message: `Database seeded successfully with ${result} employees` });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     console.error('Seed error:', error);
     return NextResponse.json(
       { error: error?.message || 'Failed to seed database' },

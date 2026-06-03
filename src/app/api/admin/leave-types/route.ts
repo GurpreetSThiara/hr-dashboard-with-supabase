@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireAuth, requireManagePolicies, authError } from '@/lib/apiAuth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const types = await withPgClient(async (client) => {
       const res = await client.query(
         'SELECT * FROM leave_types ORDER BY name ASC'
@@ -11,12 +13,15 @@ export async function GET() {
     });
     return NextResponse.json({ types });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requireManagePolicies(request);
     const body = await request.json();
     const { name, description, color, requires_document } = body;
 
@@ -36,6 +41,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ type }, { status: 201 });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     if (error.message?.includes('unique') || error.code === '23505') {
       return NextResponse.json({ error: 'A leave type with this name already exists' }, { status: 409 });
     }

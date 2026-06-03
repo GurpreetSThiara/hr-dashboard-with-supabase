@@ -1,19 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,  } from 'recharts';
 
-// Backend integration point: GET /api/analytics/leave-by-department?month=current
-const LEAVE_DATA = [
-  { dept: 'Engineering', approved: 18, pending: 6, rejected: 2 },
-  { dept: 'Sales', approved: 12, pending: 8, rejected: 1 },
-  { dept: 'Finance', approved: 7, pending: 3, rejected: 0 },
-  { dept: 'Marketing', approved: 9, pending: 4, rejected: 1 },
-  { dept: 'HR', approved: 4, pending: 2, rejected: 0 },
-  { dept: 'Operations', approved: 14, pending: 5, rejected: 2 },
-  { dept: 'Legal', approved: 3, pending: 1, rejected: 0 },
-  { dept: 'IT', approved: 6, pending: 2, rejected: 1 },
-];
+interface DeptLeave { dept: string; approved: number; pending: number; rejected: number; }
 
 interface CustomTooltipProps {
   active?: boolean;
@@ -38,20 +29,38 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 }
 
 export default function LeaveByDepartmentChart() {
+  const [data, setData] = useState<DeptLeave[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/analytics/leave-by-department')
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setData(d.data || []))
+      .catch(() => setData([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const year = new Date().getFullYear();
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-start justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Leave by Department</h3>
-          <p className="text-xs text-slate-500 mt-0.5">April 2026 — approved, pending, rejected</p>
+          <p className="text-xs text-slate-500 mt-0.5">{year} — approved, pending, rejected</p>
         </div>
-        <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors flex items-center gap-1">
+        <Link href="/leave-attendance" className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors flex items-center gap-1">
           Full Report
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 8L8 2M8 2H4M8 2V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
+        </Link>
       </div>
+      {loading ? (
+        <div className="h-[200px] flex items-center justify-center text-xs text-slate-400">Loading…</div>
+      ) : data.length === 0 ? (
+        <div className="h-[200px] flex items-center justify-center text-xs text-slate-400">No leave data for {year}</div>
+      ) : (
       <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={LEAVE_DATA} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={8} barGap={2}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={8} barGap={2}>
           <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="dept"
@@ -70,6 +79,7 @@ export default function LeaveByDepartmentChart() {
           <Bar dataKey="rejected" name="rejected" fill="#ef4444" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+      )}
       <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
         {[
           { color: '#10b981', label: 'Approved' },

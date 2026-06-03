@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireAuth, authError } from '@/lib/apiAuth';
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const includeTypes = searchParams.get('includeTypes') === 'true';
 
@@ -47,6 +49,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

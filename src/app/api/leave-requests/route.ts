@@ -81,6 +81,40 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await withPgClient(async (client) => {
+      // ── Overlap check (application-level, before DB trigger fires) ────────
+      // Gives a richer error message pointing to the conflicting leave.
+      const targetEmail2 = employee_email || actor.email;
+      let checkEmpId: string | null = employee_id || null;
+      if (!checkEmpId && targetEmail2) {
+        const r = await client.query(
+          `SELECT id FROM employees WHERE LOWER(email) = $1`,
+          [targetEmail2.toLowerCase()]
+        );
+        checkEmpId = r.rows[0]?.id ?? null;
+      }
+
+      if (checkEmpId) {
+        const conflict = await client.query(`
+          SELECT id, leave_type, start_date, end_date, status
+          FROM   leave_requests
+          WHERE  employee_id = $1
+            AND  status IN ('pending','approved')
+            AND  start_date <= $3
+            AND  end_date   >= $2
+          LIMIT 1
+        `, [checkEmpId, start_date, end_date]);
+
+        if (conflict.rows.length > 0) {
+          const c = conflict.rows[0];
+          const fmt = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          throw new Error(
+            `Overlapping leave: you already have a ${c.status} ${c.leave_type} leave ` +
+            `from ${fmt(c.start_date)} to ${fmt(c.end_date)}. ` +
+            `Please choose different dates or cancel the existing request first.`
+          );
+        }
+      }
+
       // Resolve employee record
       let empRes;
       const targetEmail = employee_email || actor.email;
@@ -103,6 +137,39 @@ export async function POST(request: NextRequest) {
         throw new Error('You can only submit leave requests for yourself');
       }
 
+      // ── Server-side balance validation ─────────────────────────────────
+      if (days_count) {
+        const balRes = await client.query(`
+          SELECT
+            COALESCE(lpr.days_per_year, lp.days_per_year, 0) AS days_per_year,
+            COALESCE(
+              SUM(CASE WHEN lr.status = 'approved'
+                        AND EXTRACT(YEAR FROM lr.start_date) = $3
+                   THEN lr.days_count ELSE 0 END), 0
+            )::int AS days_used
+          FROM leave_types lt
+          LEFT JOIN (
+            SELECT r.leave_type_id, r.days_per_year
+            FROM   leave_policy_rules r
+            JOIN   leave_policy_versions v ON v.id = r.version_id AND v.is_active = true
+          ) lpr ON lpr.leave_type_id = lt.id
+          LEFT JOIN leave_policies lp ON lp.leave_type_id = lt.id
+          LEFT JOIN leave_requests lr ON lr.employee_id = $1 AND lr.leave_type = lt.name
+          WHERE lt.name = $2
+          GROUP BY lpr.days_per_year, lp.days_per_year
+        `, [emp.id, leave_type, new Date(start_date).getFullYear()]);
+
+        const bal = balRes.rows[0];
+        if (bal && bal.days_per_year > 0) {
+          const remaining = Math.max(0, bal.days_per_year - bal.days_used);
+          if (days_count > remaining) {
+            throw new Error(
+              `Insufficient leave balance. Requested ${days_count} day(s) but only ${remaining} remaining for ${leave_type}.`
+            );
+          }
+        }
+      }
+
       const empName        = employee_name || `${emp.first_name} ${emp.last_name}`;
       const initials       = ((emp.first_name?.[0] || '') + (emp.last_name?.[0] || '')).toUpperCase() || '??';
       const departmentVal  = emp.department || 'Operations';
@@ -120,16 +187,18 @@ export async function POST(request: NextRequest) {
       const avatarColorVal = AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
       const finalDaysCount = days_count || 1;
 
+      // `days` is the legacy column (same value as days_count).
+      // Keep them in sync until a future migration drops `days`.
       const res = await client.query(
         `INSERT INTO leave_requests
            (employee_id, employee_name, employee_email, employee_initials, avatar_color,
             department, leave_type, days, days_count, start_date, end_date, reason, status,
             created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',NOW(),NOW())
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,'pending',NOW(),NOW())
          RETURNING *`,
         [
           emp.id, empName, emp.email, initials, avatarColorVal,
-          departmentVal, leave_type, finalDaysCount, finalDaysCount,
+          departmentVal, leave_type, finalDaysCount,
           start_date, end_date, reason || null,
         ]
       );
@@ -147,7 +216,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
-    const status = error.message.includes('only submit') ? 403 : 500;
-    return NextResponse.json({ error: error.message }, { status });
+    const msg = error.message || '';
+    const status =
+      msg.includes('only submit') ? 403 :
+      msg.includes('Overlapping') || msg.includes('Leave conflict') ? 409 :
+      msg.includes('Insufficient') ? 422 :
+      500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireSeedAccess, authError } from '@/lib/apiAuth';
 
 const employees = [
   { emp_id: 'EMP-0001', first_name: 'Sarah', last_name: 'Anderson', email: 'superadmin@hrcore.io', department: 'Executive', designation: 'Super Admin', manager_email: null, employment_type: 'Full-Time', join_date: '2018-01-10', status: 'active', salary_band: 'L1', location: 'New York', attendance_pct: 99 },
@@ -24,14 +25,15 @@ const employees = [
 
 export async function POST(request: NextRequest) {
   try {
-    // Check auth (optional)
-    const authHeader = request.headers.get('authorization');
-    if (authHeader && !authHeader.includes('Bearer') && authHeader !== 'admin-key') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // SECURITY: destructive reset — Super Admin or valid SEED_SECRET only.
+    await requireSeedAccess(request);
 
     const result = await withPgClient(async (client) => {
-      // 0. Clear existing employees
+      // 0. Clear dependent records first (FKs are ON DELETE RESTRICT), then employees.
+      await client.query('DELETE FROM leave_requests');
+      await client.query('DELETE FROM checkin_checkout_logs');
+      await client.query('DELETE FROM attendance_regularizations');
+      await client.query('DELETE FROM attendance_records');
       await client.query('DELETE FROM employees');
 
       let seededCount = 0;
@@ -58,6 +60,8 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     console.error('Fatal seed error:', error);
     return NextResponse.json(
       { error: 'Seed failed', details: error.message },

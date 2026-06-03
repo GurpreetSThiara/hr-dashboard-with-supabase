@@ -251,66 +251,43 @@ export default function EmployeeDashboardView() {
     };
   }, []);
 
-  // 3. Fetch leaves & policies
-  async function fetchLeaveData(empId: string) {
+  // 3. Fetch leaves & balances via permission-filtered API endpoints
+  async function fetchLeaveData(_empId: string) {
     try {
       setLeaveLoading(true);
-      // Fetch policies
-      const policiesRes = await fetch('/api/leave-policies');
-      const policiesData = await policiesRes.json();
-      const loadedPolicies = (policiesData.policies || []) as LeavePolicyRule[];
-      setPolicies(loadedPolicies);
 
-      // Fetch user requests
-      const { data: leaves } = await supabase
-        .from('leave_requests')
-        .select('*')
-        .eq('employee_id', empId)
-        .order('created_at', { ascending: false });
+      // Fetch leaves via API (server-side visibility + ownership filtering)
+      const [leavesRes, balanceRes] = await Promise.all([
+        fetch('/api/leave-requests?limit=200'),
+        fetch('/api/leave-balance'),
+      ]);
 
-      const loadedLeaves = (leaves || []) as LeaveRequest[];
-      setMyLeaves(loadedLeaves);
+      if (leavesRes.ok) {
+        const leavesData = await leavesRes.json();
+        setMyLeaves((leavesData.data || []) as LeaveRequest[]);
+      }
 
-      // Compute balances in JS
-      const currentYear = new Date().getFullYear();
-      const balances: Record<string, { total: number; used: number; pending: number; remaining: number; color: string }> = {};
+      if (balanceRes.ok) {
+        const balData = await balanceRes.json();
+        const balances: Record<string, { total: number; used: number; pending: number; remaining: number; color: string }> = {};
+        (balData.balances || []).forEach((b: any) => {
+          balances[b.leave_type] = {
+            total:     b.days_per_year,
+            used:      b.days_used,
+            pending:   b.days_pending,
+            remaining: b.days_remaining,
+            color:     b.color || '#3b82f6',
+          };
+        });
+        setLeaveBalances(balances);
 
-      const typeColors: Record<string, string> = {
-        'Sick Leave': '#ef4444',
-        'Vacation': '#10b981',
-        'Personal': '#3b82f6',
-        'Maternity': '#ec4899',
-        'Paternity': '#06b6d4',
-        'Unpaid': '#64748b',
-        'Annual Leave': '#10b981'
-      };
-
-      loadedPolicies.forEach(p => {
-        balances[p.leave_type_name] = {
-          total: p.days_per_year,
-          used: 0,
-          pending: 0,
-          remaining: p.days_per_year,
-          color: p.color || typeColors[p.leave_type_name] || '#3b82f6'
-        };
-      });
-
-      // Tally approved (deducted) and pending (held, not yet deducted) days for
-      // the current year so an applied-but-unapproved leave is visible at once.
-      loadedLeaves.forEach(l => {
-        const startDate = new Date(l.start_date);
-        if (startDate.getFullYear() !== currentYear) return;
-        const bal = balances[l.leave_type];
-        if (!bal) return;
-        if (l.status === 'approved') {
-          bal.used += l.days_count;
-        } else if (l.status === 'pending') {
-          bal.pending += l.days_count;
+        // Also keep policies in sync so the apply-leave modal dropdown works
+        const policiesRes = await fetch('/api/leave-policies');
+        if (policiesRes.ok) {
+          const pd = await policiesRes.json();
+          setPolicies((pd.policies || []) as LeavePolicyRule[]);
         }
-        bal.remaining = Math.max(0, bal.total - bal.used);
-      });
-
-      setLeaveBalances(balances);
+      }
     } catch (err) {
       console.error('Error fetching leaves:', err);
     } finally {
@@ -415,7 +392,7 @@ export default function EmployeeDashboardView() {
     const empId = employee.id;
     const empEmail = user?.email ?? '';
 
-    // ── (A) My leaves: status updates ──────────────────────────────────────
+    // ── (A) My leaves: realtime → re-fetch from API (permission-safe) ──────
     const leaveCh = supabase
       .channel(`my_leaves_${empId}`)
       .on(
@@ -426,49 +403,41 @@ export default function EmployeeDashboardView() {
           const old = payload.old as any;
           // Only care about this employee's leaves
           if (row.employee_id !== empId && row.employee_email !== empEmail) return;
-          if (row.status === old.status) return;
 
-          // Update in list
-          setMyLeaves((prev) =>
-            prev.map((l) => (l.id === row.id ? { ...l, ...row } : l))
-          );
-
-          // Update leave balances if status changed to/from approved
-          if (row.status === 'approved' || old.status === 'approved') {
-            fetchLeaveData(empId);
+          // Toast notification on status change
+          if (row.status !== old.status) {
+            if (row.status === 'approved') {
+              toast.success(`Your ${row.leave_type} leave has been approved! ✅`, { duration: 6000 });
+            } else if (row.status === 'rejected') {
+              toast.error(`Your ${row.leave_type} leave request was rejected.`, {
+                description: row.approver_notes ? `Note: ${row.approver_notes}` : undefined,
+                duration: 6000,
+              });
+            }
           }
 
-          // Toast notification
-          if (row.status === 'approved') {
-            toast.success(`Your ${row.leave_type} leave has been approved! ✅`, { duration: 6000 });
-          } else if (row.status === 'rejected') {
-            toast.error(`Your ${row.leave_type} leave request was rejected.`, {
-              description: row.approver_notes ? `Note: ${row.approver_notes}` : undefined,
-              duration: 6000,
-            });
-          }
+          // Re-fetch from API so balances + leave list are always consistent
+          fetchLeaveData(empId);
         }
       )
-      // New leave I just submitted
+      // New leave submitted
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'leave_requests' },
         (payload) => {
           const row = payload.new as any;
           if (row.employee_id !== empId && row.employee_email !== empEmail) return;
-          setMyLeaves((prev) => {
-            if (prev.some((l) => l.id === row.id)) return prev;
-            return [row, ...prev];
-          });
+          fetchLeaveData(empId);
         }
       )
-      // Deleted leave
+      // Deleted leave — optimistic remove, then re-fetch for balances
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'leave_requests' },
         (payload) => {
           const row = payload.old as any;
           setMyLeaves((prev) => prev.filter((l) => l.id !== row.id));
+          fetchLeaveData(empId);
         }
       )
       .subscribe();
@@ -541,33 +510,33 @@ export default function EmployeeDashboardView() {
     };
   }, [employee?.id, user?.email]);
 
-  // 5. Attendance Actions
+  // 5. Attendance Actions — routed through server APIs so the timestamp is
+  //    stamped server-side (NOT spoofable) and settings are enforced on the server.
   async function handleCheckIn() {
     if (!employee) return;
     try {
       setAttendanceLoading(true);
-      const now = new Date().toISOString();
 
-      const { error } = await supabase
-        .from('checkin_checkout_logs')
-        .insert({
-          employee_id: employee.id,
-          check_in_time: now,
+      const res = await fetch('/api/attendance/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           location: checkInLocation,
           notes: checkInNotes || null,
           device: navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop',
-        });
-
-      if (error) throw error;
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to check in');
 
       setIsCheckedIn(true);
-      setCheckInTime(now);
+      setCheckInTime(data.log?.check_in_time ?? new Date().toISOString());
       setCheckInNotes('');
       toast.success('Successfully checked in!');
       fetchAttendanceStatus(employee.id);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Failed to check in');
+      toast.error(err.message || 'Failed to check in');
     } finally {
       setAttendanceLoading(false);
     }
@@ -577,47 +546,22 @@ export default function EmployeeDashboardView() {
     if (!employee || !checkInTime) return;
     try {
       setAttendanceLoading(true);
-      const today = format(new Date(), 'yyyy-MM-dd');
 
-      // Fetch the log to get its ID
-      const { data: log } = await supabase
-        .from('checkin_checkout_logs')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .gte('check_in_time', `${today}T00:00:00`)
-        .lte('check_in_time', `${today}T23:59:59`)
-        .is('check_out_time', null)
-        .order('check_in_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!log) {
-        toast.error('No active check-in record found');
-        return;
-      }
-
-      const checkOutTime = new Date().toISOString();
-      const durationMs = new Date(checkOutTime).getTime() - new Date(log.check_in_time).getTime();
-      const durationMinutes = Math.max(1, Math.floor(durationMs / 60000));
-
-      const { error } = await supabase
-        .from('checkin_checkout_logs')
-        .update({
-          check_out_time: checkOutTime,
-          duration_minutes: durationMinutes,
-        })
-        .eq('id', log.id);
-
-      if (error) throw error;
+      const res = await fetch('/api/attendance/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to check out');
 
       if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
       setIsCheckedIn(false);
       setCheckInTime(null);
       toast.success('Successfully checked out! Have a good day!');
       fetchAttendanceStatus(employee.id);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Failed to check out');
+      toast.error(err.message || 'Failed to check out');
     } finally {
       setAttendanceLoading(false);
     }
@@ -687,22 +631,20 @@ export default function EmployeeDashboardView() {
     }
   }
 
-  // Delete/Cancel Leave Request
+  // Delete/Cancel Leave Request — routed through API for auth + ownership checks
   async function handleCancelLeave(leaveId: string) {
     if (!confirm('Are you sure you want to cancel this leave request?')) return;
     try {
-      const { error } = await supabase
-        .from('leave_requests')
-        .delete()
-        .eq('id', leaveId)
-        .eq('status', 'pending'); // Can only delete pending requests
-
-      if (error) throw error;
+      const res = await fetch(`/api/leave-requests/${leaveId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to cancel request');
+      }
       toast.success('Leave request cancelled');
       if (employee) fetchLeaveData(employee.id);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Failed to cancel request');
+      toast.error(err.message || 'Failed to cancel request');
     }
   }
 

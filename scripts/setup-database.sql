@@ -97,19 +97,25 @@ CREATE POLICY "users_select_own" ON users
   FOR SELECT USING (auth.uid() = id);
 
 -- EMPLOYEES: Visibility based on role
+-- NOTE: This RLS policy only applies to the Supabase JS client. API routes use
+-- a direct postgres connection (withPgClient) that bypasses RLS, so the real
+-- enforcement lives in src/lib/apiAuth.ts. This policy is the defense-in-depth
+-- layer for any direct client query.
 CREATE POLICY "employees_select_public" ON employees
   FOR SELECT USING (
     -- HR and Admin roles can see all employees
     EXISTS (
-      SELECT 1 FROM users WHERE users.id = auth.uid() 
+      SELECT 1 FROM users WHERE users.id = auth.uid()
       AND users.role IN ('Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager')
     )
     OR
-    -- Employees can see their own department
-    department = (SELECT department FROM users WHERE id = auth.uid())
+    -- Employees can see their own record
+    email = (SELECT email FROM users WHERE id = auth.uid())
     OR
-    -- Public access for demo purposes
-    TRUE
+    -- Employees can see colleagues in their own department
+    department = (SELECT department FROM users WHERE id = auth.uid())
+    -- SECURITY: the previous "OR TRUE" made the whole table world-readable to
+    -- any authenticated client. Removed. Do NOT re-add it.
   );
 
 -- LEAVE REQUESTS: Role-based access

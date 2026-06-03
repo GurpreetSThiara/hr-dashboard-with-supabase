@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AreaChart,
   Area,
@@ -11,22 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-
-// Backend integration point: GET /api/analytics/headcount-trend?weeks=12
-const HEADCOUNT_DATA = [
-  { week: 'Jan W3', headcount: 1198, joiners: 8, exits: 3 },
-  { week: 'Jan W4', headcount: 1203, joiners: 6, exits: 1 },
-  { week: 'Feb W1', headcount: 1215, joiners: 14, exits: 2 },
-  { week: 'Feb W2', headcount: 1218, joiners: 5, exits: 2 },
-  { week: 'Feb W3', headcount: 1229, joiners: 12, exits: 1 },
-  { week: 'Feb W4', headcount: 1224, joiners: 3, exits: 8 },
-  { week: 'Mar W1', headcount: 1237, joiners: 15, exits: 2 },
-  { week: 'Mar W2', headcount: 1241, joiners: 6, exits: 2 },
-  { week: 'Mar W3', headcount: 1248, joiners: 9, exits: 2 },
-  { week: 'Mar W4', headcount: 1259, joiners: 13, exits: 2 },
-  { week: 'Apr W1', headcount: 1271, joiners: 14, exits: 2 },
-  { week: 'Apr W2', headcount: 1284, joiners: 16, exits: 3 },
-];
+interface HeadcountPoint { week: string; headcount: number; joiners: number; }
 
 interface CustomTooltipProps {
   active?: boolean;
@@ -51,7 +36,19 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 
 export default function HeadcountTrendChart() {
   const [range, setRange] = useState<'12w' | '6w'>('12w');
-  const data = range === '6w' ? HEADCOUNT_DATA.slice(6) : HEADCOUNT_DATA;
+  const [allData, setAllData] = useState<HeadcountPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/analytics/headcount-trend?weeks=12')
+      .then((r) => (r.ok ? r.json() : { points: [] }))
+      .then((d) => setAllData(d.points || []))
+      .catch(() => setAllData([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const data = range === '6w' ? allData.slice(6) : allData;
+  const rangeNet = data.length > 0 ? data[data.length - 1].headcount - data[0].headcount : 0;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -72,6 +69,11 @@ export default function HeadcountTrendChart() {
           ))}
         </div>
       </div>
+      {loading ? (
+        <div className="h-[200px] flex items-center justify-center text-xs text-slate-400">Loading…</div>
+      ) : data.length === 0 ? (
+        <div className="h-[200px] flex items-center justify-center text-xs text-slate-400">No headcount data</div>
+      ) : (
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
@@ -106,13 +108,17 @@ export default function HeadcountTrendChart() {
           />
         </AreaChart>
       </ResponsiveContainer>
+      )}
       <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full bg-blue-700" />
           <span className="text-xs text-slate-500">Headcount</span>
         </div>
         <div className="text-xs text-slate-400">
-          Net change this period: <span className="text-emerald-600 font-semibold">+86 employees</span>
+          Net change this period:{' '}
+          <span className={`font-semibold ${rangeNet >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {rangeNet >= 0 ? '+' : ''}{rangeNet} employee{Math.abs(rangeNet) === 1 ? '' : 's'}
+          </span>
         </div>
       </div>
     </div>

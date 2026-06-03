@@ -4,7 +4,7 @@ import { getServerSupabase } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, role, tier } = await request.json();
+    const { email, password } = await request.json();
 
     if (!email || !password) {
       return NextResponse.json(
@@ -12,6 +12,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // SECURITY: public self-registration ALWAYS creates a least-privileged
+    // account. Role/tier from the request body are ignored to prevent
+    // privilege escalation. Elevation must be done by an admin via
+    // /api/admin/users/[id] (which is itself authorization-gated).
+    const role = 'Employee';
+    const tier = 15;
 
     const conn = getServerSupabase();
 

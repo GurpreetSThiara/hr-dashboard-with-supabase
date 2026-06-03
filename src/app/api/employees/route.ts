@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
+import { getServerSupabase } from '@/lib/supabase/server';
+import { requireAuth, requireManageEmployees, authError } from '@/lib/apiAuth';
 
 export async function GET(request: NextRequest) {
   try {
+    // SECURITY: directory requires authentication. Salary band is stripped for
+    // non-HR viewers (tier > 6).
+    const actor = await requireAuth(request);
+    const isHrViewer = actor.tier <= 6;
+
     const conn = getServerSupabase();
     if (!conn) {
       return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
@@ -22,8 +28,13 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    // Strip sensitive compensation data from non-HR viewers
+    const rows = isHrViewer
+      ? data
+      : (data || []).map(({ salary_band, ...rest }: any) => rest);
+
     return NextResponse.json({
-      data,
+      data: rows,
       pagination: {
         page,
         limit,
@@ -32,21 +43,23 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: creating employees requires manage_employees (tier ≤ 7).
+    const actor = await requireManageEmployees(request);
+
     const conn = getServerSupabase();
     if (!conn) {
       return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
     }
     const supabase = conn.client;
-    const user = await getServerUser(request, supabase);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const user = { email: actor.email };
 
     const body = await request.json();
     
@@ -80,6 +93,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }

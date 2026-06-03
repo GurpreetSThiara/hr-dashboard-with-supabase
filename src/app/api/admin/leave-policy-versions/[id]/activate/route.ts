@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireManagePolicies, authError } from '@/lib/apiAuth';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const actor = await requireManagePolicies(request);
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const activatedBy = body?.activated_by_email || null;
+    const activatedBy = body?.activated_by_email || actor.email;
 
     const version = await withPgClient(async (client) => {
       const check = await client.query(
@@ -42,6 +44,8 @@ export async function POST(
 
     return NextResponse.json({ success: true, version });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

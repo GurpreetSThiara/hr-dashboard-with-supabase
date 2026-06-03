@@ -1,13 +1,26 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { DEMO_USERS } from '@/lib/demoUsers';
+import { isDemoMode, requireSeedAccess, authError } from '@/lib/apiAuth';
 // @ts-ignore
 import pg from 'pg';
 
 // POST — Idempotent seed of all 18 demo users.
 // Uses direct PostgreSQL access via POSTGRES_URL (same approach as
 // scripts/seed-demo-users.mjs) so it works without SUPABASE_SERVICE_ROLE_KEY.
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // SECURITY: in production this requires Super Admin or a valid SEED_SECRET.
+  // In demo mode it is open so a fresh demo DB can be bootstrapped.
+  if (!isDemoMode()) {
+    try {
+      await requireSeedAccess(request);
+    } catch (err) {
+      const authResp = authError(err);
+      if (authResp) return authResp;
+      throw err;
+    }
+  }
+
   const postgresUrl = process.env.POSTGRES_URL;
 
   if (!postgresUrl) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase, envMisconfiguredError, getServerUser } from '@/lib/supabase/server';
+import { getServerSupabase, envMisconfiguredError } from '@/lib/supabase/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireAuth, requireAdmin, authError } from '@/lib/apiAuth';
 
 const TIER_TO_ROLE: Record<number, string> = {
   1: 'Super Admin', 2: 'Owner', 3: 'Admin', 4: 'HR Admin', 5: 'HR Manager',
@@ -24,9 +25,13 @@ const DEFAULT_PERMISSIONS: Record<string, number[]> = {
   admin_panel:      [1,2],
 };
 
-// GET — returns current permission matrix (DB or defaults if never saved)
-export async function GET() {
+// GET — returns current permission matrix (DB or defaults if never saved).
+// Requires authentication (any logged-in user needs it to resolve their own
+// permissions client-side); the matrix itself is non-sensitive config.
+export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
+
     const conn = getServerSupabase();
     if (!conn) {
       return NextResponse.json({ matrix: DEFAULT_PERMISSIONS, isDefault: true });
@@ -64,19 +69,13 @@ export async function GET() {
   }
 }
 
-// POST — batch-save the full permission matrix
+// POST — batch-save the full permission matrix (admin_panel only, tier ≤ 2)
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: only Super Admin / Owner may rewrite the org permission matrix.
+    const actor = await requireAdmin(request);
+    const sessionUserEmail = actor.email;
     const conn = getServerSupabase();
-    let sessionUserEmail: string | null = null;
-    if (conn) {
-      try {
-        const user = await getServerUser(request, conn.client);
-        sessionUserEmail = user?.email ?? null;
-      } catch {
-        // Non-fatal if session cannot be parsed
-      }
-    }
 
     const body = await request.json();
     const { matrix, updatedBy } = body as {
@@ -185,6 +184,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, savedAt: now });
   } catch (err: any) {
+    const authResp = authError(err);
+    if (authResp) return authResp;
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

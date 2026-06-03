@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireSeedAccess, authError } from '@/lib/apiAuth';
 
 
 const employees = [
@@ -46,13 +47,10 @@ const leavePolicies = [
   { name: 'Unpaid Leave', days_per_year: 30 },
 ];
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Check auth
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.includes('Bearer') && authHeader !== 'admin-key') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // SECURITY: comprehensive seed — Super Admin or valid SEED_SECRET only.
+    await requireSeedAccess(request);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -152,6 +150,8 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     console.error('Seeding error:', error);
     return NextResponse.json(
       { error: error.message || 'Seeding failed' },

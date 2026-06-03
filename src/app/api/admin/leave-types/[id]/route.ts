@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireManagePolicies, authError } from '@/lib/apiAuth';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireManagePolicies(request);
     const { id } = await params;
     const body = await request.json();
     const { name, description, color, requires_document } = body;
@@ -29,6 +31,8 @@ export async function PUT(
 
     return NextResponse.json({ type });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     if (error.message?.includes('unique') || error.code === '23505') {
       return NextResponse.json({ error: 'A leave type with this name already exists' }, { status: 409 });
     }
@@ -37,10 +41,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireManagePolicies(request);
     const { id } = await params;
     await withPgClient(async (client) => {
       const refRes = await client.query(
@@ -60,6 +65,8 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

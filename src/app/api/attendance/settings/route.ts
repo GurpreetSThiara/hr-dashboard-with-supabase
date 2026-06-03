@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
+import { requireAuth, authError } from '@/lib/apiAuth';
 
-// GET — Retrieve active attendance settings
-export async function GET() {
+// GET — Retrieve active attendance settings (authenticated users only)
+export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const data = await withPgClient(async (client) => {
       const res = await client.query("SELECT * FROM attendance_settings WHERE id = 'default' LIMIT 1");
       return res.rows[0];
@@ -21,6 +23,8 @@ export async function GET() {
 
     return NextResponse.json(data);
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

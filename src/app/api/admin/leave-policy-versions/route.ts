@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
+import { requireAuth, requireManagePolicies, authError } from '@/lib/apiAuth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const versions = await withPgClient(async (client) => {
       const res = await client.query(`
         SELECT v.*,
@@ -16,12 +18,15 @@ export async function GET() {
     });
     return NextResponse.json({ versions });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requireManagePolicies(request);
     const body = await request.json();
     const { name, description, effective_date, copy_from_version_id, created_by_email } = body;
 
@@ -60,6 +65,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ version }, { status: 201 });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

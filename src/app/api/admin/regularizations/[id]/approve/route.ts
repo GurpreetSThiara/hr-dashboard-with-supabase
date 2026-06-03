@@ -57,6 +57,17 @@ export async function POST(
         throw new Error(`Regularization request has already been ${reg.status}.`);
       }
 
+      // SECURITY: an approver may not approve/reject their own regularization.
+      if (user.email) {
+        const selfRes = await client.query(
+          'SELECT id FROM employees WHERE id = $1 AND LOWER(email) = LOWER($2)',
+          [reg.employee_id, user.email]
+        );
+        if (selfRes.rows.length > 0) {
+          throw new Error('You cannot approve or reject your own regularization request.');
+        }
+      }
+
       // 2. Perform updates based on action
       if (action === 'rejected') {
         const updateRes = await client.query(

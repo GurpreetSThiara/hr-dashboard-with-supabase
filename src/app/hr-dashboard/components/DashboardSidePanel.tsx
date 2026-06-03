@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -30,18 +31,10 @@ interface ActivityFeed {
   created_at: string;
 }
 
-const ACTIVITY_FEED_DEFAULTS: ActivityFeed[] = [
-  { id: 'act-001', icon: 'UserPlusIcon', icon_color: 'text-blue-600', icon_bg: 'bg-blue-50', description: 'Priya Sharma completed onboarding checklist', created_at: new Date().toISOString() },
-  { id: 'act-002', icon: 'BanknotesIcon', icon_color: 'text-emerald-600', icon_bg: 'bg-emerald-50', description: 'April payroll batch initiated by Payroll Manager', created_at: new Date(Date.now() - 3600000).toISOString() },
-  { id: 'act-003', icon: 'StarIcon', icon_color: 'text-amber-500', icon_bg: 'bg-amber-50', description: 'Q1 performance reviews cycle closed — 94.2% completion', created_at: new Date(Date.now() - 7200000).toISOString() },
-  { id: 'act-004', icon: 'DocumentTextIcon', icon_color: 'text-violet-600', icon_bg: 'bg-violet-50', description: 'IT Security Policy v2.4 published for acknowledgement', created_at: new Date(Date.now() - 86400000).toISOString() },
-  { id: 'act-005', icon: 'BriefcaseIcon', icon_color: 'text-indigo-600', icon_bg: 'bg-indigo-50', description: 'Senior Backend Engineer offer accepted by James Kowalski', created_at: new Date(Date.now() - 172800000).toISOString() },
-];
-
 export default function DashboardSidePanel() {
   const { user } = useAuth();
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
-  const [activityFeed, setActivityFeed] = useState<ActivityFeed[]>(ACTIVITY_FEED_DEFAULTS);
+  const [activityFeed, setActivityFeed] = useState<ActivityFeed[]>([]);
   const [activeTab, setActiveTab] = useState<'approvals' | 'activity'>('approvals');
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -86,9 +79,9 @@ export default function DashboardSidePanel() {
         .order('created_at', { ascending: false })
         .limit(20);
       if (error) throw error;
-      setActivityFeed(data && data.length > 0 ? data : ACTIVITY_FEED_DEFAULTS);
+      setActivityFeed(data || []);
     } catch {
-      setActivityFeed(ACTIVITY_FEED_DEFAULTS);
+      setActivityFeed([]);
     }
   }, []);
 
@@ -290,6 +283,9 @@ export default function DashboardSidePanel() {
 
         {activeTab === 'activity' && (
           <div className="p-4 space-y-0">
+            {activityFeed.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-8">No recent activity</p>
+            )}
             {activityFeed.map((item, idx) => (
               <div key={item.id} className="flex items-start gap-3 py-3 relative">
                 {idx < activityFeed.length - 1 && (
@@ -308,12 +304,17 @@ export default function DashboardSidePanel() {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-slate-100 px-4 py-2.5">
-        <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors w-full text-center">
-          {activeTab === 'approvals' ? 'View all leave requests →' : 'View full activity log →'}
-        </button>
-      </div>
+      {/* Footer — only the approvals tab has a real destination */}
+      {activeTab === 'approvals' && (
+        <div className="border-t border-slate-100 px-4 py-2.5">
+          <Link
+            href="/leave-attendance"
+            className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors w-full text-center block"
+          >
+            View all leave requests →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

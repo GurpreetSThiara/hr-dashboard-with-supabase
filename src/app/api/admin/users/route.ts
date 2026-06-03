@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
+import { requireAdmin, authError } from '@/lib/apiAuth';
 // @ts-ignore
 import pg from 'pg';
 
@@ -18,6 +19,9 @@ async function getPgClient() {
 // GET — return all users with role info
 export async function GET(request: NextRequest) {
   try {
+    // SECURITY: user directory (PII, roles) is admin_panel only.
+    await requireAdmin(request);
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
     const tierFilter = searchParams.get('tier');
@@ -77,6 +81,8 @@ export async function GET(request: NextRequest) {
       await pgClient.end().catch(() => {});
     }
   } catch (err: any) {
+    const authResp = authError(err);
+    if (authResp) return authResp;
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

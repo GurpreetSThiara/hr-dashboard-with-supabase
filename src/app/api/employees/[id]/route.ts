@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
+import { getServerSupabase } from '@/lib/supabase/server';
+import { requireAuth, requireManageEmployees, authError } from '@/lib/apiAuth';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // SECURITY: viewing a single employee requires authentication.
+    const actor = await requireAuth(request);
+    const isHrViewer = actor.tier <= 6;
+
     const { id } = await params;
     const data = await withPgClient(async (client) => {
       const res = await client.query(
@@ -16,8 +21,14 @@ export async function GET(
       if (res.rows.length === 0) throw new Error('Employee not found');
       return res.rows[0];
     });
+
+    // Strip compensation data from non-HR viewers
+    if (!isHrViewer && data) delete (data as any).salary_band;
+
     return NextResponse.json(data);
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 404 });
   }
 }
@@ -27,27 +38,19 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // SECURITY: editing employees requires manage_employees (tier ≤ 7).
+    const actor = await requireManageEmployees(request);
+    const userEmail = actor.email;
+
     const { id } = await params;
-
-    // Verify session via server supabase (optional — don't block if no supabase)
-    const conn = getServerSupabase();
-    let userEmail: string | null = null;
-    if (conn) {
-      const user = await getServerUser(request, conn.client);
-      if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      userEmail = user.email ?? null;
-    }
-
     const body = await request.json();
 
     const data = await withPgClient(async (client) => {
-      // Build dynamic SET clause from provided fields
+      // Whitelist of columns that actually exist on the employees table.
       const allowed = [
-        'first_name', 'last_name', 'email', 'phone', 'department',
-        'position', 'start_date', 'salary', 'status', 'avatar_url',
-        'address', 'city', 'country', 'bio', 'skills',
+        'first_name', 'last_name', 'email', 'department', 'designation',
+        'employment_type', 'manager', 'join_date', 'status',
+        'salary_band', 'location', 'attendance_pct',
       ];
       const updates: string[] = [];
       const values: any[] = [];
@@ -71,6 +74,7 @@ export async function PUT(
     });
 
     // Log activity fire-and-forget
+    const conn = getServerSupabase();
     if (conn) {
       void Promise.resolve(
         conn.client.from('activity_feed').insert([{
@@ -85,54 +89,55 @@ export async function PUT(
 
     return NextResponse.json(data);
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // SECURITY: deleting employees requires manage_employees (tier ≤ 7).
+    const actor = await requireManageEmployees(request);
+    const userEmail = actor.email;
+
     const { id } = await params;
 
-    // Verify session via server supabase (optional)
-    const conn = getServerSupabase();
-    let userEmail: string | null = null;
-    if (conn) {
-      const user = await getServerUser(_request, conn.client);
-      if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      userEmail = user.email ?? null;
-    }
-
+    // SOFT DELETE: preserve HR history (leave, attendance) — never hard-delete.
+    // The employees→children FKs are ON DELETE RESTRICT, so a hard delete would
+    // also fail for anyone with history. We mark the record terminated instead.
     const employee = await withPgClient(async (client) => {
-      const sel = await client.query(
-        'SELECT first_name, last_name FROM employees WHERE id = $1',
+      const res = await client.query(
+        `UPDATE employees SET status = 'terminated', updated_at = NOW()
+         WHERE id = $1
+         RETURNING first_name, last_name`,
         [id]
       );
-      if (sel.rows.length === 0) throw new Error('Employee not found');
-
-      await client.query('DELETE FROM employees WHERE id = $1', [id]);
-      return sel.rows[0];
+      if (res.rows.length === 0) throw new Error('Employee not found');
+      return res.rows[0];
     });
 
     // Log activity fire-and-forget
+    const conn = getServerSupabase();
     if (conn) {
       void Promise.resolve(
         conn.client.from('activity_feed').insert([{
           user_email: userEmail,
-          action: 'deleted_employee',
-          description: `Deleted employee: ${employee.first_name} ${employee.last_name}`,
+          action: 'deactivated_employee',
+          description: `Deactivated employee: ${employee.first_name} ${employee.last_name}`,
           target_id: id,
           target_type: 'employee',
         }])
       ).catch(() => {});
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, softDeleted: true });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
