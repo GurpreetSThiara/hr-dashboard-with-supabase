@@ -777,12 +777,16 @@ interface LeaveRequest {
 const STATUS_TABS = ['all', 'pending', 'approved', 'rejected'] as const;
 
 function LeaveRequestsPanel() {
+  const { profile } = useAuth();
+  const currentUserEmail = (profile?.email ?? '').toLowerCase();
+
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [editModal, setEditModal] = useState<LeaveRequest | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
   const [createModal, setCreateModal] = useState(false);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -819,6 +823,26 @@ function LeaveRequestsPanel() {
       toast.error(err.message);
     } finally {
       setApproving(null);
+    }
+  }
+
+  async function cancelLeave(id: string) {
+    if (!confirm('Cancel this approved leave? The employee will be notified.')) return;
+    setCancelling(id);
+    try {
+      const res = await fetch(`/api/leave-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancelled', approver_notes: noteMap[id] || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success('Approved leave cancelled');
+      load();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setCancelling(null);
     }
   }
 
@@ -912,21 +936,46 @@ function LeaveRequestsPanel() {
                     }`}>{leave.status}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5 justify-end">
-                      {leave.status === 'pending' && (
-                        <>
+                    <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                      {leave.status === 'pending' && (() => {
+                        const isSelf = currentUserEmail && leave.employee_email &&
+                          leave.employee_email.toLowerCase() === currentUserEmail;
+                        return isSelf ? (
+                          <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded" title="You cannot approve your own leave">
+                            <Icon name="NoSymbolIcon" size={11} /> Own leave
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => approve(leave.id, 'approved')}
+                              disabled={approving === leave.id}
+                              className="px-2 py-1 text-xs font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >✓ Approve</button>
+                            <button
+                              onClick={() => approve(leave.id, 'rejected')}
+                              disabled={approving === leave.id}
+                              className="px-2 py-1 text-xs font-semibold bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                            >✗ Reject</button>
+                          </>
+                        );
+                      })()}
+                      {leave.status === 'approved' && (() => {
+                        const isSelf = currentUserEmail && leave.employee_email &&
+                          leave.employee_email.toLowerCase() === currentUserEmail;
+                        return !isSelf ? (
                           <button
-                            onClick={() => approve(leave.id, 'approved')}
-                            disabled={approving === leave.id}
-                            className="px-2 py-1 text-xs font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                          >✓ Approve</button>
-                          <button
-                            onClick={() => approve(leave.id, 'rejected')}
-                            disabled={approving === leave.id}
-                            className="px-2 py-1 text-xs font-semibold bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
-                          >✗ Reject</button>
-                        </>
-                      )}
+                            onClick={() => cancelLeave(leave.id)}
+                            disabled={cancelling === leave.id}
+                            className="px-2 py-1 text-xs font-semibold bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition-colors flex items-center gap-1"
+                          >
+                            {cancelling === leave.id
+                              ? <Icon name="ArrowPathIcon" size={11} className="animate-spin" />
+                              : null
+                            }
+                            Cancel
+                          </button>
+                        ) : null;
+                      })()}
                       <button onClick={() => setEditModal(leave)} className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors" title="Edit">
                         <Icon name="PencilIcon" size={14} />
                       </button>

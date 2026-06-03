@@ -28,8 +28,10 @@ export default function LeaveAttendanceSection() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [approverNotes, setApproverNotes] = useState<Record<string, string>>({});
   const [isLive, setIsLive] = useState(false);
 
@@ -42,6 +44,7 @@ export default function LeaveAttendanceSection() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          setCurrentUserEmail((session.user.email ?? '').toLowerCase());
           const { data: userProfile } = await supabase
             .from('users')
             .select('role')
@@ -122,8 +125,16 @@ export default function LeaveAttendanceSection() {
     };
   }, [activeTab]);
 
-  // Role-based permission check
-  const canApprove = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'].includes(userRole || '');
+  // Role-based permission checks
+  const APPROVER_ROLES = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'];
+  const canApprove = APPROVER_ROLES.includes(userRole || '');
+
+  /** True for the current leave card: has approval rights AND it is not their own leave */
+  function canActOnLeave(employeeEmail: string | undefined) {
+    if (!canApprove) return false;
+    if (!employeeEmail) return true; // no email on record — allow
+    return employeeEmail.toLowerCase() !== (currentUserEmail ?? '');
+  }
 
   async function handleApprove(id: string) {
     if (!canApprove) {
@@ -173,17 +184,54 @@ export default function LeaveAttendanceSection() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to reject leave');
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to reject leave');
+      }
 
       setLeaves((prev) =>
         prev.map((l) => (l.id === id ? { ...l, status: 'rejected' } : l))
       );
       toast.success('Leave request rejected');
-    } catch (error) {
-      toast.error('Failed to reject leave');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to reject leave');
       console.error(error);
     } finally {
       setRejectingId(null);
+    }
+  }
+
+  async function handleCancel(id: string) {
+    if (!canApprove) {
+      toast.error('You do not have permission to cancel leaves');
+      return;
+    }
+
+    setCancellingId(id);
+    try {
+      const response = await fetch(`/api/leave-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'cancelled',
+          approver_notes: approverNotes[id] || '',
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to cancel leave');
+      }
+
+      setLeaves((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, status: 'cancelled' as any } : l))
+      );
+      toast.success('Approved leave has been cancelled');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to cancel leave');
+      console.error(error);
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -287,46 +335,92 @@ export default function LeaveAttendanceSection() {
                 </div>
 
                 {/* Right Actions */}
-                {leave.status === 'pending' && canApprove && (
+                {leave.status === 'pending' && (
                   <div className="flex flex-col gap-2 min-w-fit">
-                    <div className="mb-2">
-                      <textarea
-                        placeholder="Approval notes (optional)"
-                        value={approverNotes[leave.id] || ''}
-                        onChange={(e) =>
-                          setApproverNotes((prev) => ({
-                            ...prev,
-                            [leave.id]: e.target.value,
-                          }))
-                        }
-                        className="input-field text-xs p-2 resize-none w-40"
-                        rows={2}
-                      />
-                    </div>
-                    <button
-                      onClick={() => handleApprove(leave.id)}
-                      disabled={approvingId === leave.id}
-                      className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
-                    >
-                      {approvingId === leave.id && (
-                        <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
-                      )}
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => handleReject(leave.id)}
-                      disabled={rejectingId === leave.id}
-                      className="px-3 py-1.5 text-xs font-semibold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
-                    >
-                      {rejectingId === leave.id && (
-                        <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
-                      )}
-                      Reject
-                    </button>
+                    {canActOnLeave(leave.employee_email) ? (
+                      <>
+                        <div className="mb-2">
+                          <textarea
+                            placeholder="Notes (optional)"
+                            value={approverNotes[leave.id] || ''}
+                            onChange={(e) =>
+                              setApproverNotes((prev) => ({
+                                ...prev,
+                                [leave.id]: e.target.value,
+                              }))
+                            }
+                            className="input-field text-xs p-2 resize-none w-40"
+                            rows={2}
+                          />
+                        </div>
+                        <button
+                          onClick={() => handleApprove(leave.id)}
+                          disabled={approvingId === leave.id}
+                          className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                        >
+                          {approvingId === leave.id && (
+                            <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                          )}
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleReject(leave.id)}
+                          disabled={rejectingId === leave.id}
+                          className="px-3 py-1.5 text-xs font-semibold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                        >
+                          {rejectingId === leave.id && (
+                            <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                          )}
+                          Reject
+                        </button>
+                      </>
+                    ) : canApprove ? (
+                      <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                        <Icon name="NoSymbolIcon" size={13} className="text-amber-500 flex-shrink-0" />
+                        <p className="text-xs text-amber-700 font-medium">Your own leave</p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
-                {leave.status !== 'pending' && (
+                {leave.status === 'approved' && (
+                  <div className="flex flex-col items-end gap-2">
+                    <p className="text-xs text-slate-500">Processed</p>
+                    <p className="text-xs text-slate-400">
+                      {new Date(leave.created_at).toLocaleDateString()}
+                    </p>
+                    {canActOnLeave(leave.employee_email) && (
+                      <>
+                        <textarea
+                          placeholder="Cancellation reason (optional)"
+                          value={approverNotes[leave.id] || ''}
+                          onChange={(e) =>
+                            setApproverNotes((prev) => ({
+                              ...prev,
+                              [leave.id]: e.target.value,
+                            }))
+                          }
+                          className="input-field text-xs p-2 resize-none w-40 mt-1"
+                          rows={2}
+                        />
+                        <button
+                          onClick={() => handleCancel(leave.id)}
+                          disabled={cancellingId === leave.id}
+                          className="px-3 py-1.5 text-xs font-semibold bg-orange-600 text-white rounded hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1 w-full"
+                        >
+                          {cancellingId === leave.id ? (
+                            <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                          ) : (
+                            <Icon name="XCircleIcon" size={12} />
+                          )}
+                          Cancel Leave
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {(leave.status === 'rejected' || (leave.status as any) === 'cancelled') && (
                   <div className="text-right">
                     <p className="text-xs text-slate-500">Processed</p>
                     <p className="text-xs text-slate-400 mt-1">

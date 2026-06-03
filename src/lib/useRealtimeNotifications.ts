@@ -17,22 +17,46 @@ export interface Notification {
   message: string;
   timestamp: string;
   read: boolean;
+  /** true when this notification is backed by a row in the notifications table */
+  persisted?: boolean;
+  link?: string;
 }
 
-// HR/manager roles that see all new leave submissions
+// Roles that get the ephemeral "employee removed" notice.
 const APPROVER_ROLES = new Set([
   'Super Admin', 'Owner', 'Admin', 'HR Admin',
   'HR Manager', 'HR Executive', 'Director', 'Manager',
 ]);
 
+const VALID_TYPES = new Set([
+  'leave_approved', 'leave_rejected', 'employee_added',
+  'employee_deleted', 'leave_submitted', 'regularization_updated',
+]);
+
+function mapRow(row: any): Notification {
+  return {
+    id: row.id,
+    type: VALID_TYPES.has(row.type) ? row.type : 'leave_submitted',
+    title: row.title,
+    message: row.message ?? '',
+    timestamp: row.created_at ?? new Date().toISOString(),
+    read: !!row.read,
+    persisted: true,
+    link: row.link ?? undefined,
+  };
+}
+
 export function useRealtimeNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  // useRef so cleanup always references the live channel, not a stale let-binding
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const emailRef = useRef<string>('');
   const supabase = createClient();
 
   const addNotification = useCallback((n: Notification) => {
-    setNotifications((prev) => [n, ...prev.slice(0, 49)]); // cap at 50
+    setNotifications((prev) => {
+      if (prev.some((x) => x.id === n.id)) return prev;
+      return [n, ...prev.slice(0, 49)]; // cap at 50
+    });
   }, []);
 
   useEffect(() => {
@@ -44,77 +68,43 @@ export function useRealtimeNotifications() {
         if (!session?.user || !active) return;
 
         const userId = session.user.id;
-        const userEmail = session.user.email ?? '';
+        const userEmail = (session.user.email ?? '').toLowerCase();
+        emailRef.current = userEmail;
 
-        // Fetch user role to determine notification scope
+        // Role (for the ephemeral employee-removed notice)
         const { data: profile } = await supabase
           .from('users')
           .select('role')
           .eq('id', userId)
           .single();
-        const userRole: string = profile?.role ?? 'Employee';
-        const isApprover = APPROVER_ROLES.has(userRole);
+        const isApprover = APPROVER_ROLES.has(profile?.role ?? 'Employee');
+
+        // ── 1. Load persisted notifications for this user ──────────────────
+        const { data: existing } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_email', userEmail)
+          .order('created_at', { ascending: false })
+          .limit(50);
 
         if (!active) return;
+        if (existing) setNotifications(existing.map(mapRow));
 
+        // ── 2. Realtime subscriptions ─────────────────────────────────────
         const ch = supabase.channel(`hrcore_notifications_${userId}`)
 
-          // ── Leave approved / rejected — notify the employee who owns it ──
+          // Persisted notifications addressed to me (leave submit/approve/reject)
           .on(
             'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'leave_requests' },
+            { event: 'INSERT', schema: 'public', table: 'notifications' },
             (payload) => {
-              const data = payload.new as any;
-              const old = payload.old as any;
-              // Only fire if status actually changed
-              if (data.status === old.status) return;
-              // Notify the employee whose leave it is (match by email if stored)
-              const isMyLeave =
-                data.employee_email === userEmail ||
-                (!data.employee_email && data.employee_id === userId);
-              if (isMyLeave && (data.status === 'approved' || data.status === 'rejected')) {
-                addNotification({
-                  id: `lr-upd-${data.id}-${Date.now()}`,
-                  type: data.status === 'approved' ? 'leave_approved' : 'leave_rejected',
-                  title: data.status === 'approved' ? 'Leave Approved! ✅' : 'Leave Rejected',
-                  message: `Your ${data.leave_type || ''} leave request (${data.start_date} → ${data.end_date}) has been ${data.status}.`,
-                  timestamp: new Date().toISOString(),
-                  read: false,
-                });
-              }
-              // Also notify approvers that a request was just processed (by someone else)
-              if (isApprover && !isMyLeave && (data.status === 'approved' || data.status === 'rejected')) {
-                addNotification({
-                  id: `lr-proc-${data.id}-${Date.now()}`,
-                  type: data.status === 'approved' ? 'leave_approved' : 'leave_rejected',
-                  title: `Leave ${data.status === 'approved' ? 'Approved' : 'Rejected'}`,
-                  message: `${data.employee_name}'s leave request has been ${data.status}.`,
-                  timestamp: new Date().toISOString(),
-                  read: false,
-                });
-              }
+              const row = payload.new as any;
+              if ((row.recipient_email ?? '').toLowerCase() !== userEmail) return;
+              addNotification(mapRow(row));
             }
           )
 
-          // ── New leave submitted — notify approvers only ──
-          .on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'leave_requests' },
-            (payload) => {
-              if (!isApprover) return;
-              const data = payload.new as any;
-              addNotification({
-                id: `lr-new-${data.id}`,
-                type: 'leave_submitted',
-                title: 'New Leave Request',
-                message: `${data.employee_name} submitted a ${data.leave_type || ''} leave (${data.start_date} → ${data.end_date}).`,
-                timestamp: new Date().toISOString(),
-                read: false,
-              });
-            }
-          )
-
-          // ── New employee added ──
+          // Ephemeral: new employee added (informational, not persisted)
           .on(
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'employees' },
@@ -131,13 +121,13 @@ export function useRealtimeNotifications() {
             }
           )
 
-          // ── Employee removed ──
+          // Ephemeral: employee removed (approvers only)
           .on(
             'postgres_changes',
             { event: 'DELETE', schema: 'public', table: 'employees' },
             (payload) => {
-              const data = payload.old as any;
               if (!isApprover) return;
+              const data = payload.old as any;
               addNotification({
                 id: `emp-del-${data.id}-${Date.now()}`,
                 type: 'employee_deleted',
@@ -149,7 +139,7 @@ export function useRealtimeNotifications() {
             }
           )
 
-          // ── Regularization status updated ──
+          // Ephemeral: my regularization decision
           .on(
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'regularization_requests' },
@@ -157,7 +147,7 @@ export function useRealtimeNotifications() {
               const data = payload.new as any;
               const old = payload.old as any;
               if (data.status === old.status) return;
-              if (data.employee_id !== userId && data.employee_email !== userEmail) return;
+              if (data.employee_id !== userId && (data.employee_email ?? '').toLowerCase() !== userEmail) return;
               addNotification({
                 id: `reg-upd-${data.id}-${Date.now()}`,
                 type: 'regularization_updated',
@@ -194,16 +184,37 @@ export function useRealtimeNotifications() {
   }, []);
 
   const markAsRead = useCallback((id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  }, []);
+    setNotifications((prev) => {
+      const target = prev.find((n) => n.id === id);
+      if (target?.persisted) {
+        supabase.from('notifications').update({ read: true }).eq('id', id).then(() => {});
+      }
+      return prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+    });
+  }, [supabase]);
 
   const markAllRead = useCallback(() => {
+    if (emailRef.current) {
+      supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('recipient_email', emailRef.current)
+        .eq('read', false)
+        .then(() => {});
+    }
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
+  }, [supabase]);
 
   const clearAll = useCallback(() => {
+    if (emailRef.current) {
+      supabase
+        .from('notifications')
+        .delete()
+        .eq('recipient_email', emailRef.current)
+        .then(() => {});
+    }
     setNotifications([]);
-  }, []);
+  }, [supabase]);
 
   return {
     notifications,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
+import { notifyLeaveSubmitted } from '@/lib/notifications';
 
 export async function GET(request: NextRequest) {
   try {
@@ -127,7 +128,12 @@ export async function POST(request: NextRequest) {
         reason || null
       ]);
 
-      return res.rows[0];
+      const created = res.rows[0];
+
+      // Notify the reporting manager + HR approvers (best-effort, never blocks).
+      await notifyLeaveSubmitted(client, created, sessionUserEmail);
+
+      return created;
     });
 
     return NextResponse.json(data, { status: 201 });

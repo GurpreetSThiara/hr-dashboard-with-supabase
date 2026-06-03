@@ -40,55 +40,65 @@ export async function getServerUser(request: NextRequest, supabaseClient: Supaba
   // Try Authorization header first
   const authHeader = request.headers.get('Authorization');
   let token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
-  console.log("getServerUser DEBUG: authHeader =", authHeader);
 
   if (!token) {
-    // Try cookies
+    // Parse all cookies into a map
     const cookieHeader = request.headers.get('cookie') || '';
-    console.log("getServerUser DEBUG: cookieHeader =", cookieHeader);
-    
-    // 1. Try sb-access-token
-    const matchAccessToken = cookieHeader.match(/(^|;)\s*sb-access-token\s*=\s*([^;]+)/);
-    if (matchAccessToken) {
-      token = decodeURIComponent(matchAccessToken[2]);
-      console.log("getServerUser DEBUG: Found sb-access-token cookie");
+    const cookies: Record<string, string> = {};
+    for (const part of cookieHeader.split(';')) {
+      const idx = part.indexOf('=');
+      if (idx === -1) continue;
+      const name = part.slice(0, idx).trim();
+      const value = part.slice(idx + 1).trim();
+      if (name) cookies[name] = value;
+    }
+
+    // 1. Legacy: explicit access-token cookie
+    if (cookies['sb-access-token']) {
+      token = decodeURIComponent(cookies['sb-access-token']);
     } else {
-      // 2. Try sb-<project-ref>-auth-token
-      const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/(.*?)\.supabase\.co/)?.[1] || '';
-      const cookieName = `sb-${projectRef}-auth-token`;
-      const matchAuthToken = cookieHeader.match(new RegExp('(^|;)\\s*' + cookieName + '\\s*=\\s*([^;]+)'));
-      if (matchAuthToken) {
+      // 2. @supabase/ssr stores the session under sb-<ref>-auth-token. It may be
+      //    split into chunked cookies (…-auth-token.0, .1, …) and is typically
+      //    base64-encoded with a "base64-" prefix. Reassemble, decode, parse.
+      const projectRef =
+        process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/(.*?)\.supabase\.co/)?.[1] || '';
+      const base = `sb-${projectRef}-auth-token`;
+
+      const chunkNames = Object.keys(cookies)
+        .filter((n) => n === base || n.startsWith(`${base}.`))
+        .sort((a, b) => {
+          const ai = a === base ? -1 : parseInt(a.slice(base.length + 1), 10);
+          const bi = b === base ? -1 : parseInt(b.slice(base.length + 1), 10);
+          return ai - bi;
+        });
+
+      if (chunkNames.length > 0) {
+        let raw = chunkNames.map((n) => decodeURIComponent(cookies[n])).join('');
         try {
-          const parsed = JSON.parse(decodeURIComponent(matchAuthToken[2]));
-          token = parsed.access_token || parsed;
-          console.log("getServerUser DEBUG: Found project-ref-auth-token cookie");
+          if (raw.startsWith('base64-')) {
+            raw = Buffer.from(raw.slice('base64-'.length), 'base64').toString('utf-8');
+          }
+          const parsed = JSON.parse(raw);
+          const session = Array.isArray(parsed) ? parsed[0] : parsed;
+          token = session?.access_token || null;
         } catch {
-          token = matchAuthToken[2];
-          console.log("getServerUser DEBUG: Found project-ref-auth-token cookie (fallback)");
+          token = null;
         }
       }
     }
   }
 
   if (!token) {
-    console.log("getServerUser DEBUG: No token found in headers or cookies");
     return null;
   }
 
   try {
     const { data: { user }, error } = await supabaseClient.auth.getUser(token);
-    if (error) {
-      console.log("getServerUser DEBUG: getUser error =", error.message);
+    if (error || !user) {
       return null;
     }
-    if (!user) {
-      console.log("getServerUser DEBUG: No user returned");
-      return null;
-    }
-    console.log("getServerUser DEBUG: Authenticated user =", user.email);
     return user;
-  } catch (err: any) {
-    console.log("getServerUser DEBUG: getUser catch err =", err?.message || err);
+  } catch {
     return null;
   }
 }

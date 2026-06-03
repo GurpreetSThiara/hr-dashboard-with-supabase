@@ -104,7 +104,7 @@ export default function EmployeeDashboardView() {
   // Leave states
   const [policies, setPolicies] = useState<LeavePolicyRule[]>([]);
   const [myLeaves, setMyLeaves] = useState<LeaveRequest[]>([]);
-  const [leaveBalances, setLeaveBalances] = useState<Record<string, { total: number; used: number; remaining: number; color: string }>>({});
+  const [leaveBalances, setLeaveBalances] = useState<Record<string, { total: number; used: number; pending: number; remaining: number; color: string }>>({});
   const [leaveLoading, setLeaveLoading] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
 
@@ -273,7 +273,7 @@ export default function EmployeeDashboardView() {
 
       // Compute balances in JS
       const currentYear = new Date().getFullYear();
-      const balances: Record<string, { total: number; used: number; remaining: number; color: string }> = {};
+      const balances: Record<string, { total: number; used: number; pending: number; remaining: number; color: string }> = {};
 
       const typeColors: Record<string, string> = {
         'Sick Leave': '#ef4444',
@@ -289,23 +289,25 @@ export default function EmployeeDashboardView() {
         balances[p.leave_type_name] = {
           total: p.days_per_year,
           used: 0,
+          pending: 0,
           remaining: p.days_per_year,
           color: p.color || typeColors[p.leave_type_name] || '#3b82f6'
         };
       });
 
-      // Sum used days for approved leaves in current year
+      // Tally approved (deducted) and pending (held, not yet deducted) days for
+      // the current year so an applied-but-unapproved leave is visible at once.
       loadedLeaves.forEach(l => {
+        const startDate = new Date(l.start_date);
+        if (startDate.getFullYear() !== currentYear) return;
+        const bal = balances[l.leave_type];
+        if (!bal) return;
         if (l.status === 'approved') {
-          const startDate = new Date(l.start_date);
-          if (startDate.getFullYear() === currentYear) {
-            const name = l.leave_type;
-            if (balances[name]) {
-              balances[name].used += l.days_count;
-              balances[name].remaining = Math.max(0, balances[name].total - balances[name].used);
-            }
-          }
+          bal.used += l.days_count;
+        } else if (l.status === 'pending') {
+          bal.pending += l.days_count;
         }
+        bal.remaining = Math.max(0, bal.total - bal.used);
       });
 
       setLeaveBalances(balances);
@@ -1147,19 +1149,32 @@ export default function EmployeeDashboardView() {
                       <span className="text-3xl font-extrabold text-slate-900 font-mono-data">{bal.remaining}</span>
                       <span className="text-xs text-slate-400 font-medium">days left</span>
                     </div>
+                    {bal.pending > 0 && (
+                      <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        {bal.pending}d pending approval
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-slate-100">
                     <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                       <span>Allowance: {bal.total}d</span>
-                      <span>Used: {bal.used}d</span>
+                      <span>Used: {bal.used}d{bal.pending > 0 ? ` · Pending: ${bal.pending}d` : ''}</span>
                     </div>
-                    <div className="w-full bg-slate-200/70 rounded-full h-2">
+                    <div className="w-full bg-slate-200/70 rounded-full h-2 flex overflow-hidden">
                       <div
-                        className="h-2 rounded-full transition-all duration-300"
+                        className="h-2 transition-all duration-300"
                         style={{
                           width: `${Math.min(100, usedPct)}%`,
                           backgroundColor: bal.color
+                        }}
+                      />
+                      <div
+                        className="h-2 transition-all duration-300 opacity-40 bg-[repeating-linear-gradient(45deg,currentColor,currentColor_3px,transparent_3px,transparent_6px)]"
+                        style={{
+                          width: `${Math.min(100 - Math.min(100, usedPct), bal.total > 0 ? (bal.pending / bal.total) * 100 : 0)}%`,
+                          color: bal.color,
                         }}
                       />
                     </div>

@@ -4,42 +4,40 @@ import React, { useState, useRef, useEffect } from 'react';
 
 import Icon from '@/components/ui/AppIcon';
 import UserMenu from '@/components/UserMenu';
+import { useRealtimeNotifications } from '@/lib/useRealtimeNotifications';
 // import CheckinCheckoutButton from '@/components/CheckinCheckoutButton'; // Commented out
 
-interface Notification {
-  id: string;
-  type: 'leave' | 'payroll' | 'compliance' | 'onboarding' | 'policy';
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-}
-
-// TODO: Replace with real notifications from database
-// COMMENTED OUT - Mock notifications (feature not implemented yet)
-const MOCK_NOTIFICATIONS: Notification[] = [
-  // { id: 'notif-001', type: 'leave', title: 'Leave Request Pending', message: 'Marcus Chen requested 3 days annual leave starting Apr 28', time: '12m ago', read: false },
-  // { id: 'notif-002', type: 'compliance', title: 'Compliance Deadline', message: 'Q1 statutory filing due in 3 days — Apr 26, 2026', time: '1h ago', read: false },
-  // { id: 'notif-003', type: 'onboarding', title: 'Onboarding Incomplete', message: 'Priya Sharma (EMP-0214) has 4 pending onboarding tasks', time: '2h ago', read: false },
-  // { id: 'notif-004', type: 'payroll', title: 'Payroll Cycle Open', message: 'April 2026 payroll run is ready for review and approval', time: '4h ago', read: true },
-  // { id: 'notif-005', type: 'policy', title: 'Policy Acknowledgement', message: '23 employees have not acknowledged the updated IT Security Policy', time: '1d ago', read: true },
-];
-
 const notifTypeColors: Record<string, string> = {
-  leave: 'bg-amber-100 text-amber-600',
-  payroll: 'bg-emerald-100 text-emerald-600',
-  compliance: 'bg-red-100 text-red-600',
-  onboarding: 'bg-blue-100 text-blue-600',
-  policy: 'bg-violet-100 text-violet-600',
+  leave_submitted: 'bg-amber-100 text-amber-600',
+  leave_approved: 'bg-emerald-100 text-emerald-600',
+  leave_rejected: 'bg-red-100 text-red-600',
+  employee_added: 'bg-blue-100 text-blue-600',
+  employee_deleted: 'bg-slate-100 text-slate-600',
+  regularization_updated: 'bg-violet-100 text-violet-600',
 };
 
 const notifTypeIcons: Record<string, string> = {
-  leave: 'CalendarDaysIcon',
-  payroll: 'BanknotesIcon',
-  compliance: 'ShieldExclamationIcon',
-  onboarding: 'ClipboardDocumentCheckIcon',
-  policy: 'DocumentTextIcon',
+  leave_submitted: 'CalendarDaysIcon',
+  leave_approved: 'CheckCircleIcon',
+  leave_rejected: 'XCircleIcon',
+  employee_added: 'UserPlusIcon',
+  employee_deleted: 'UserMinusIcon',
+  regularization_updated: 'ClockIcon',
 };
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-GB');
+}
 
 interface TopbarProps {
   pageTitle: string;
@@ -48,11 +46,11 @@ interface TopbarProps {
 
 export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
   const [searchValue, setSearchValue] = useState('');
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const { notifications, unreadCount, markAsRead, markAllRead, clearAll } =
+    useRealtimeNotifications();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -63,10 +61,6 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  function markAllRead() {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 z-30">
@@ -126,31 +120,43 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
                 </button>
               </div>
               <div className="max-h-80 overflow-y-auto scrollbar-thin">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`flex items-start gap-3 px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors ${!n.read ? 'bg-blue-50/30' : ''}`}
-                    onClick={() => setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, read: true } : x))}
-                  >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${notifTypeColors[n.type]}`}>
-                      <Icon name={notifTypeIcons[n.type] as Parameters<typeof Icon>[0]['name']} size={14} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={`text-sm font-medium truncate ${!n.read ? 'text-slate-900' : 'text-slate-700'}`}>{n.title}</p>
-                        {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.message}</p>
-                      <p className="text-xs text-slate-400 mt-1">{n.time}</p>
-                    </div>
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-10 text-center">
+                    <Icon name="BellIcon" size={24} className="mx-auto text-slate-300" />
+                    <p className="text-sm text-slate-400 mt-2">No notifications yet</p>
                   </div>
-                ))}
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className={`flex items-start gap-3 px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors ${!n.read ? 'bg-blue-50/30' : ''}`}
+                      onClick={() => markAsRead(n.id)}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${notifTypeColors[n.type] ?? 'bg-slate-100 text-slate-600'}`}>
+                        <Icon name={(notifTypeIcons[n.type] ?? 'BellIcon') as Parameters<typeof Icon>[0]['name']} size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`text-sm font-medium truncate ${!n.read ? 'text-slate-900' : 'text-slate-700'}`}>{n.title}</p>
+                          {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.message}</p>
+                        <p className="text-xs text-slate-400 mt-1">{relativeTime(n.timestamp)}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-              <div className="px-4 py-2.5 border-t border-slate-100">
-                <button className="text-xs text-blue-600 hover:text-blue-700 font-medium w-full text-center transition-colors">
-                  View all notifications
-                </button>
-              </div>
+              {notifications.length > 0 && (
+                <div className="px-4 py-2.5 border-t border-slate-100">
+                  <button
+                    onClick={clearAll}
+                    className="text-xs text-slate-500 hover:text-red-600 font-medium w-full text-center transition-colors"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
