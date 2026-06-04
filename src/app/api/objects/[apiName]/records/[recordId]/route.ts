@@ -1,14 +1,17 @@
 /**
- *   GET    /api/objects/[apiName]/records/[recordId]
- *   PUT    .../[recordId]   — update (metadata-validated)
- *   DELETE .../[recordId]   — soft delete
+ *   GET    /api/objects/[apiName]/records/[recordId]   — requires VIEW
+ *   PUT    .../[recordId]   — update; requires EDIT
+ *   DELETE .../[recordId]   — soft delete; requires DELETE
  *
- * ACL: owner or admin (tier ≤ 2).
+ * Access is resolved by the record-sharing engine (ownership / admin /
+ * user / role / role-group / department shares).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { requireAuth, authError, ApiAuthError } from '@/lib/apiAuth';
+import { requireAuth, authError, ApiAuthError, type AuthedActor } from '@/lib/apiAuth';
 import { validateRecord, type FieldDef } from '@/lib/recordValidation';
+import { getActorPrincipals, resolveRecordAccess, meets, type AccessLevel } from '@/lib/recordSharing';
+import { resolveFieldAccess, maskRecordData } from '@/lib/fieldSecurity';
 
 async function loadContext(client: any, apiName: string, recordId: string) {
   const o = await client.query(
@@ -28,8 +31,12 @@ async function loadContext(client: any, apiName: string, recordId: string) {
   return { object: o.rows[0], record: rec.rows[0], fields: f.rows as FieldDef[] };
 }
 
-function canManage(actor: { tier: number; email: string }, record: any): boolean {
-  return actor.tier <= 2 || (record.owner_email || '').toLowerCase() === actor.email.toLowerCase();
+/** Throws 403 unless the actor has at least `required` access on the record. */
+async function requireRecordAccess(client: any, actor: AuthedActor, record: any, required: AccessLevel) {
+  const principals = await getActorPrincipals(client, actor);
+  const level = await resolveRecordAccess(client, principals, record);
+  if (!meets(level, required)) throw new ApiAuthError(`Forbidden — requires ${required} access`, 403);
+  return level;
 }
 
 export async function GET(
@@ -41,8 +48,13 @@ export async function GET(
     const { apiName, recordId } = await params;
     const data = await withPgClient(async (client) => {
       const ctx = await loadContext(client, apiName, recordId);
-      if (!canManage(actor, ctx.record)) throw new ApiAuthError('Forbidden', 403);
-      return { record: ctx.record, fields: ctx.fields };
+      await requireRecordAccess(client, actor, ctx.record, 'view');
+      // FLS: mask non-viewable field values + annotate editability.
+      const principals = await getActorPrincipals(client, actor);
+      const access = await resolveFieldAccess(client, principals, ctx.object.id, ctx.fields);
+      const masked = { ...ctx.record, data: maskRecordData(ctx.record.data, access) };
+      const annotated = ctx.fields.map((f) => ({ ...f, viewable: access.viewable.has(f.api_name), editable: access.editable.has(f.api_name) }));
+      return { record: masked, fields: annotated };
     });
     return NextResponse.json(data);
   } catch (err: any) {
@@ -62,10 +74,17 @@ export async function PUT(
 
     const result = await withPgClient(async (client) => {
       const ctx = await loadContext(client, apiName, recordId);
-      if (!canManage(actor, ctx.record)) throw new ApiAuthError('Forbidden', 403);
+      await requireRecordAccess(client, actor, ctx.record, 'edit');
+
+      // FLS: only allow writes to fields the actor may edit.
+      const principals = await getActorPrincipals(client, actor);
+      const access = await resolveFieldAccess(client, principals, ctx.object.id, ctx.fields);
+      const incoming = input?.data ?? input ?? {};
+      const allowedIncoming: Record<string, any> = {};
+      for (const k of Object.keys(incoming)) if (access.editable.has(k)) allowedIncoming[k] = incoming[k];
 
       // Merge so partial updates keep existing values, then validate the merge.
-      const merged = { ...ctx.record.data, ...(input?.data ?? input) };
+      const merged = { ...ctx.record.data, ...allowedIncoming };
       const v = await validateRecord(client, ctx.object.id, ctx.fields, merged, recordId);
       if (!v.ok) return { validationErrors: v.errors };
 
@@ -96,7 +115,7 @@ export async function DELETE(
     const { apiName, recordId } = await params;
     await withPgClient(async (client) => {
       const ctx = await loadContext(client, apiName, recordId);
-      if (!canManage(actor, ctx.record)) throw new ApiAuthError('Forbidden', 403);
+      await requireRecordAccess(client, actor, ctx.record, 'delete');
       await client.query(`UPDATE custom_records SET deleted_at = NOW() WHERE id = $1`, [recordId]);
     });
     return NextResponse.json({ success: true });

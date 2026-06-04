@@ -23,6 +23,12 @@ export default function DynamicRecordsPanel({ apiName, label }: { apiName: strin
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
+  // Sharing
+  const [shareRec, setShareRec] = useState<Rec | null>(null);
+  const [shares, setShares] = useState<any[]>([]);
+  const [accessLevels, setAccessLevels] = useState<string[]>([]);
+  const [shareForm, setShareForm] = useState({ principal_type: 'user', principal_id: '', access_level: 'view' });
+
   const load = useCallback(() => {
     setLoading(true);
     fetch(`/api/objects/${apiName}/records`)
@@ -103,6 +109,30 @@ export default function DynamicRecordsPanel({ apiName, label }: { apiName: strin
     toast.success('Record deleted'); load();
   }
 
+  async function openShares(rec: Rec) {
+    setShareRec(rec);
+    const res = await fetch(`/api/objects/${apiName}/records/${rec.id}/shares`);
+    if (!res.ok) { toast.error((await res.json()).error); setShareRec(null); return; }
+    const d = await res.json();
+    setShares(d.shares || []); setAccessLevels(d.accessLevels || []);
+  }
+  async function addShare() {
+    if (!shareRec || !shareForm.principal_id.trim()) return;
+    const res = await fetch(`/api/objects/${apiName}/records/${shareRec.id}/shares`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(shareForm),
+    });
+    if (!res.ok) { toast.error((await res.json()).error); return; }
+    toast.success('Shared'); setShareForm({ principal_type: 'user', principal_id: '', access_level: 'view' }); openShares(shareRec);
+  }
+  async function removeShare(shareId: string) {
+    if (!shareRec) return;
+    const res = await fetch(`/api/objects/${apiName}/records/${shareRec.id}/shares`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_id: shareId }),
+    });
+    if (!res.ok) { toast.error((await res.json()).error); return; }
+    toast.success('Share removed'); openShares(shareRec);
+  }
+
   function display(v: any) {
     if (v === null || v === undefined || v === '') return '—';
     if (Array.isArray(v)) return v.join(', ');
@@ -157,7 +187,8 @@ export default function DynamicRecordsPanel({ apiName, label }: { apiName: strin
                   {records.map(r => (
                     <tr key={r.id} className="hover:bg-slate-50">
                       {fields.slice(0, 5).map(f => <td key={f.id} className="px-2 py-2 text-slate-700">{display(r.data[f.api_name])}</td>)}
-                      <td className="px-2 py-2 text-right">
+                      <td className="px-2 py-2 text-right whitespace-nowrap">
+                        <button onClick={() => openShares(r)} className="text-blue-600 hover:text-blue-800 mr-3">Share</button>
                         <button onClick={() => del(r.id)} className="text-red-500 hover:text-red-700">Delete</button>
                       </td>
                     </tr>
@@ -167,6 +198,43 @@ export default function DynamicRecordsPanel({ apiName, label }: { apiName: strin
             </div>
           )}
         </>
+      )}
+
+      {/* Share modal */}
+      {shareRec && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShareRec(null)}>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-lg w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-slate-800">Share record</h4>
+              <button onClick={() => setShareRec(null)} className="text-slate-400 hover:text-slate-700"><Icon name="XMarkIcon" size={16} /></button>
+            </div>
+
+            <div className="flex gap-2 mb-3 flex-wrap">
+              <select value={shareForm.principal_type} onChange={e => setShareForm(s => ({ ...s, principal_type: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
+                {['user', 'role', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input value={shareForm.principal_id} onChange={e => setShareForm(s => ({ ...s, principal_id: e.target.value }))} placeholder={shareForm.principal_type === 'user' ? 'email' : shareForm.principal_type === 'role_group' ? 'group id' : shareForm.principal_type} className="flex-1 min-w-[140px] text-xs border border-slate-200 rounded-lg px-2 py-1.5" />
+              <select value={shareForm.access_level} onChange={e => setShareForm(s => ({ ...s, access_level: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
+                {(accessLevels.length ? accessLevels : ['view', 'edit', 'full']).map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <button onClick={addShare} className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg">Share</button>
+            </div>
+
+            {shares.length === 0 ? <p className="text-xs text-slate-400">No shares yet. The owner and admins always have full access.</p> : (
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {shares.map(s => (
+                  <div key={s.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                    <div>
+                      <p className="text-xs font-medium text-slate-700">{s.principal_type}: {s.principal_id}</p>
+                      <p className="text-[11px] text-slate-400">{s.access_level}</p>
+                    </div>
+                    <button onClick={() => removeShare(s.id)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

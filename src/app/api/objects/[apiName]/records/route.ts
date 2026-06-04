@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 import { requireAuth, authError, ApiAuthError } from '@/lib/apiAuth';
 import { validateRecord, type FieldDef } from '@/lib/recordValidation';
+import { getActorPrincipals, buildVisibleRecordsClause } from '@/lib/recordSharing';
+import { resolveFieldAccess, maskRecordData } from '@/lib/fieldSecurity';
 
 async function resolveObject(client: any, apiName: string) {
   const o = await client.query(
@@ -35,26 +37,37 @@ export async function GET(
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(100, parseInt(searchParams.get('limit') || '50'));
     const offset = (page - 1) * limit;
-    const isAdmin = actor.tier <= 2;
 
     const data = await withPgClient(async (client) => {
       const { object, fields } = await resolveObject(client, apiName);
 
-      const conds = ['object_id = $1', 'deleted_at IS NULL'];
+      // Record-level visibility (Phase 4): owner / shares / admin. `r` alias required.
+      const principals = await getActorPrincipals(client, actor);
       const vals: any[] = [object.id];
-      if (!isAdmin) { vals.push(actor.email.toLowerCase()); conds.push(`LOWER(owner_email) = $${vals.length}`); }
-      const where = `WHERE ${conds.join(' AND ')}`;
+      const share = buildVisibleRecordsClause(principals, vals.length + 1);
+      vals.push(...share.params);
+      const where = `WHERE r.object_id = $1 AND r.deleted_at IS NULL ${share.clause}`;
 
-      const count = await client.query(`SELECT COUNT(*) FROM custom_records ${where}`, vals);
+      const count = await client.query(`SELECT COUNT(*) FROM custom_records r ${where}`, vals);
       const rows = await client.query(
-        `SELECT id, data, owner_email, created_by, created_at, updated_at
-         FROM custom_records ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+        `SELECT r.id, r.data, r.owner_email, r.created_by, r.created_at, r.updated_at
+         FROM custom_records r ${where} ORDER BY r.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
         vals
       );
+
+      // Field-level security (Phase 5): mask non-viewable field values + annotate fields.
+      const access = await resolveFieldAccess(client, principals, object.id, fields);
+      const maskedRows = rows.rows.map((rec: any) => ({ ...rec, data: maskRecordData(rec.data, access) }));
+      const annotatedFields = fields.map((f) => ({
+        ...f,
+        viewable: access.viewable.has(f.api_name),
+        editable: access.editable.has(f.api_name),
+      }));
+
       return {
         object: { id: object.id, api_name: object.api_name, label: object.label, plural_label: object.plural_label },
-        fields,
-        data: rows.rows,
+        fields: annotatedFields,
+        data: maskedRows,
         pagination: { page, limit, total: parseInt(count.rows[0].count), pages: Math.ceil(parseInt(count.rows[0].count) / limit) },
       };
     });
@@ -77,7 +90,15 @@ export async function POST(
 
     const result = await withPgClient(async (client) => {
       const { object, fields } = await resolveObject(client, apiName);
-      const v = await validateRecord(client, object.id, fields, input?.data ?? input, undefined);
+
+      // FLS: drop any fields the actor is not permitted to edit before validating.
+      const principals = await getActorPrincipals(client, actor);
+      const access = await resolveFieldAccess(client, principals, object.id, fields);
+      const raw = input?.data ?? input ?? {};
+      const filtered: Record<string, any> = {};
+      for (const k of Object.keys(raw)) if (access.editable.has(k)) filtered[k] = raw[k];
+
+      const v = await validateRecord(client, object.id, fields, filtered, undefined);
       if (!v.ok) return { validationErrors: v.errors };
 
       const res = await client.query(

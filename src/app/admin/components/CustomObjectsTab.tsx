@@ -33,6 +33,11 @@ export default function CustomObjectsTab() {
   const [fieldForm, setFieldForm] = useState<any>({ label: '', field_type: 'text', is_required: false, is_unique: false, picklist_values: '', lookup_object_id: '', formula: '' });
   const [recordsObject, setRecordsObject] = useState<CObject | null>(null);
 
+  // Field-Level Security config
+  const [flsField, setFlsField] = useState<CField | null>(null);
+  const [flsRows, setFlsRows] = useState<any[]>([]);
+  const [flsNew, setFlsNew] = useState({ principal_type: 'role', principal_id: '', can_view: true, can_edit: false });
+
   const loadObjects = useCallback(() => {
     setLoading(true);
     fetch('/api/admin/custom-objects').then(r => r.json())
@@ -85,6 +90,27 @@ export default function CustomObjectsTab() {
       fetch(`/api/admin/custom-objects/${selected.id}/fields/${swap.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_order: f.display_order }) }),
     ]);
     loadFields(selected);
+  }
+
+  async function openFls(f: CField) {
+    if (!selected) return;
+    setFlsField(f);
+    const res = await fetch(`/api/admin/custom-objects/${selected.id}/fields/${f.id}/permissions`);
+    const d = await res.json();
+    setFlsRows(d.permissions || []);
+  }
+  function addFlsRow() {
+    if (!flsNew.principal_id.trim()) return;
+    setFlsRows(rows => [...rows, { ...flsNew }]);
+    setFlsNew({ principal_type: 'role', principal_id: '', can_view: true, can_edit: false });
+  }
+  async function saveFls() {
+    if (!selected || !flsField) return;
+    const res = await fetch(`/api/admin/custom-objects/${selected.id}/fields/${flsField.id}/permissions`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissions: flsRows }),
+    });
+    if (!res.ok) { toast.error((await res.json()).error); return; }
+    toast.success(flsRows.length === 0 ? 'Field set to unrestricted' : 'Field security saved'); setFlsField(null);
   }
 
   return (
@@ -179,6 +205,7 @@ export default function CustomObjectsTab() {
                     <div className="flex items-center gap-1">
                       <button onClick={() => move(f, -1)} disabled={i === 0} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><Icon name="ChevronUpIcon" size={13} /></button>
                       <button onClick={() => move(f, 1)} disabled={i === fields.length - 1} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><Icon name="ChevronDownIcon" size={13} /></button>
+                      <button onClick={() => openFls(f)} className="text-xs text-blue-600 hover:text-blue-800 ml-1">Security</button>
                       <button onClick={() => archiveField(f)} className="text-xs text-red-500 hover:text-red-700 ml-1">Archive</button>
                     </div>
                   </div>
@@ -189,6 +216,49 @@ export default function CustomObjectsTab() {
         )}
       </div>
       </div>
+
+      {/* Field-Level Security modal */}
+      {flsField && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setFlsField(null)}>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-xl w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-sm font-bold text-slate-800">Field Security — {flsField.label}</h4>
+              <button onClick={() => setFlsField(null)} className="text-slate-400 hover:text-slate-700"><Icon name="XMarkIcon" size={16} /></button>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              No rules = open to anyone with record access. Add rules to restrict this field to specific principals (admins always have full access).
+            </p>
+
+            <div className="flex gap-2 mb-3 flex-wrap items-center">
+              <select value={flsNew.principal_type} onChange={e => setFlsNew(s => ({ ...s, principal_type: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
+                {['role', 'user', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input value={flsNew.principal_id} onChange={e => setFlsNew(s => ({ ...s, principal_id: e.target.value }))} placeholder={flsNew.principal_type === 'user' ? 'email' : flsNew.principal_type === 'role' ? 'role name' : flsNew.principal_type} className="flex-1 min-w-[120px] text-xs border border-slate-200 rounded-lg px-2 py-1.5" />
+              <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={flsNew.can_view} onChange={e => setFlsNew(s => ({ ...s, can_view: e.target.checked }))} /> view</label>
+              <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={flsNew.can_edit} onChange={e => setFlsNew(s => ({ ...s, can_edit: e.target.checked }))} /> edit</label>
+              <button onClick={addFlsRow} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg">Add rule</button>
+            </div>
+
+            {flsRows.length === 0 ? (
+              <p className="text-xs text-slate-400 mb-3">No rules — field is unrestricted.</p>
+            ) : (
+              <div className="space-y-1.5 mb-3 max-h-52 overflow-y-auto">
+                {flsRows.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg text-xs">
+                    <span className="text-slate-700">{r.principal_type}: <b>{r.principal_id}</b> — {r.can_view ? 'view' : ''}{r.can_edit ? '+edit' : ''}{!r.can_view && !r.can_edit ? 'no access' : ''}</span>
+                    <button onClick={() => setFlsRows(rows => rows.filter((_, j) => j !== i))} className="text-red-500 hover:text-red-700">Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setFlsField(null)} className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg">Cancel</button>
+              <button onClick={saveFls} className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
