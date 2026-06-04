@@ -14,13 +14,15 @@ import HolidaysTab from './components/HolidaysTab';
 import AdminAuditTab from './components/AdminAuditTab';
 import AccessControlTab from './components/AccessControlTab';
 import CustomObjectsTab from './components/CustomObjectsTab';
+import StandardObjectsTab from './components/StandardObjectsTab';
 
-type TabType = 'users' | 'permissions' | 'access-control' | 'custom-objects' | 'policies' | 'holidays' | 'checkin' | 'attendance-settings' | 'hierarchy' | 'leave-permissions' | 'audit';
+type TabType = 'users' | 'permissions' | 'access-control' | 'standard-objects' | 'custom-objects' | 'policies' | 'holidays' | 'checkin' | 'attendance-settings' | 'hierarchy' | 'leave-permissions' | 'audit';
 
 const TABS: { id: TabType; label: string; icon: string; description: string }[] = [
   { id: 'users',             label: 'Users',              icon: 'UsersIcon',             description: 'Manage user accounts and role assignments' },
   { id: 'permissions',       label: 'Roles & Permissions', icon: 'ShieldCheckIcon',      description: 'Configure what each role can access' },
   { id: 'access-control',    label: 'Access Control',      icon: 'KeyIcon',              description: 'Role groups and permission sets (additive, time-boxed grants)' },
+  { id: 'standard-objects',  label: 'Standard Objects',    icon: 'RectangleStackIcon',   description: 'System objects — toggle standard field visibility; add custom fields & relationships' },
   { id: 'custom-objects',    label: 'Custom Objects',      icon: 'CubeIcon',             description: 'Define dynamic business objects and fields without code' },
   { id: 'policies',          label: 'Leave Management',    icon: 'CalendarDaysIcon',     description: 'Manage leave types, policy versions, and all leave requests' },
   { id: 'holidays',          label: 'Holiday Management',  icon: 'SunIcon',              description: 'Configure company holidays, optional holidays, and holiday policies' },
@@ -87,6 +89,7 @@ export default function AdminPage() {
           {activeTab === 'holidays'            && <HolidaysTab />}
           {activeTab === 'audit'               && <AdminAuditTab />}
           {activeTab === 'access-control'      && <AccessControlTab />}
+          {activeTab === 'standard-objects'    && <StandardObjectsTab />}
           {activeTab === 'custom-objects'      && <CustomObjectsTab />}
         </div>
       </div>
