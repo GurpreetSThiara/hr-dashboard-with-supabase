@@ -99,19 +99,21 @@ export default function EditEmployeeModal({ isOpen, employee, onClose, onSuccess
     if (!employee) return;
     setLoading(true);
     try {
-      const { data: updated, error } = await supabase
-        .from('employees')
-        .update(data)
-        .eq('id', employee.id)
-        .select()
-        .single();
+      // Update via the secured, audited API (authorization + field-level
+      // permissions + change history enforced server-side).
+      const res = await fetch(`/api/employees/${employee.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const updated = await res.json();
+      if (!res.ok) throw new Error(updated.error || 'Failed to update employee');
 
-      if (error) throw error;
       toast.success(`${data.first_name} ${data.last_name} updated successfully!`);
       onClose();
       onSuccess(updated as Employee);
-    } catch {
-      toast.error('Failed to update employee');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update employee');
     } finally {
       setLoading(false);
     }

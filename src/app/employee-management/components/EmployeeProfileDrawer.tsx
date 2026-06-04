@@ -54,6 +54,12 @@ function getAvatarColor(str: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+function formatVal(v: any): string {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
 function calcTenure(joinDate: string): string {
   const join = new Date(joinDate);
   const now = new Date();
@@ -82,13 +88,44 @@ const DEPT_COLORS: Record<string, string> = {
   Design: 'bg-cyan-100 text-cyan-700',
 };
 
+interface AuditEntry {
+  id: string;
+  actor_email: string;
+  actor_role: string;
+  action: string;
+  changed_fields: string[] | null;
+  old_values: Record<string, any> | null;
+  new_values: Record<string, any> | null;
+  reason: string | null;
+  created_at: string;
+}
+
+const ACTION_STYLE: Record<string, string> = {
+  created: 'bg-blue-100 text-blue-700',
+  updated: 'bg-slate-100 text-slate-600',
+  deleted: 'bg-red-100 text-red-600',
+  restored: 'bg-emerald-100 text-emerald-700',
+  role_change: 'bg-purple-100 text-purple-700',
+  salary_change: 'bg-amber-100 text-amber-700',
+  department_change: 'bg-cyan-100 text-cyan-700',
+  manager_change: 'bg-indigo-100 text-indigo-700',
+  status_change: 'bg-orange-100 text-orange-700',
+};
+
 export default function EmployeeProfileDrawer({ employee, onClose, onEdit, canEdit }: Props) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [history, setHistory] = useState<AuditEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const supabase = createClient();
 
   useEffect(() => {
     if (!employee) return;
+    setActiveTab('overview');
+    setHistory([]);
+    setHistoryLoaded(false);
     setLeaveLoading(true);
     supabase
       .from('leave_requests')
@@ -101,6 +138,17 @@ export default function EmployeeProfileDrawer({ employee, onClose, onEdit, canEd
         setLeaveLoading(false);
       });
   }, [employee?.id]);
+
+  // Lazy-load audit history when the History tab is first opened.
+  useEffect(() => {
+    if (activeTab !== 'history' || !employee || historyLoaded) return;
+    setHistoryLoading(true);
+    fetch(`/api/employees/${employee.id}/history?limit=50`)
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setHistory(d.data || []))
+      .catch(() => setHistory([]))
+      .finally(() => { setHistoryLoading(false); setHistoryLoaded(true); });
+  }, [activeTab, employee?.id, historyLoaded]);
 
   if (!employee) return null;
 
@@ -128,7 +176,26 @@ export default function EmployeeProfileDrawer({ employee, onClose, onEdit, canEd
           </button>
         </div>
 
+        {/* Tab bar */}
+        <div className="flex border-b border-slate-200 flex-shrink-0 px-5">
+          {(['overview', 'history'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                activeTab === tab
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {tab === 'overview' ? 'Overview' : 'History'}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1 overflow-y-auto">
+          {activeTab === 'overview' && (
+          <>
           {/* Profile hero */}
           <div className="px-5 py-6 bg-gradient-to-br from-slate-50 to-blue-50 border-b border-slate-200">
             <div className="flex items-start gap-4">
@@ -158,12 +225,14 @@ export default function EmployeeProfileDrawer({ employee, onClose, onEdit, canEd
             </div>
           </div>
 
-          {/* Quick stats */}
-          <div className="grid grid-cols-3 border-b border-slate-200">
+          {/* Quick stats — Band only shown when the API returned it (HR/self) */}
+          <div className={`grid ${employee.salary_band ? 'grid-cols-3' : 'grid-cols-2'} border-b border-slate-200`}>
             {[
               { label: 'Attendance', value: `${employee.attendance_pct}%`, colorClass: attendanceColor },
               { label: 'Tenure', value: tenure, colorClass: 'text-blue-600' },
-              { label: 'Band', value: employee.salary_band, colorClass: 'text-violet-600' },
+              ...(employee.salary_band
+                ? [{ label: 'Band', value: employee.salary_band, colorClass: 'text-violet-600' }]
+                : []),
             ].map(({ label, value, colorClass }) => (
               <div key={label} className="py-4 text-center border-r last:border-r-0 border-slate-200">
                 <p className={`text-xl font-bold ${colorClass}`}>{value}</p>
@@ -243,6 +312,60 @@ export default function EmployeeProfileDrawer({ employee, onClose, onEdit, canEd
               </div>
             )}
           </div>
+          </>
+          )}
+
+          {/* ── History tab ─────────────────────────────────────────────── */}
+          {activeTab === 'history' && (
+            <div className="px-5 py-5">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                Change History
+              </p>
+              {historyLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse" />)}
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No change history recorded</p>
+              ) : (
+                <div className="space-y-3">
+                  {history.map((h) => (
+                    <div key={h.id} className="relative pl-4 border-l-2 border-slate-100 pb-1">
+                      <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300" />
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${ACTION_STYLE[h.action] || 'bg-slate-100 text-slate-600'}`}>
+                          {h.action.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          {new Date(h.created_at).toLocaleString('en-GB', {
+                            day: 'numeric', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        by <span className="font-semibold text-slate-700">{h.actor_email || 'system'}</span>
+                        {h.actor_role ? <span className="text-slate-400"> ({h.actor_role})</span> : null}
+                      </p>
+                      {h.changed_fields && h.changed_fields.length > 0 && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {h.changed_fields.map((f) => (
+                            <p key={f} className="text-[11px] text-slate-500">
+                              <span className="font-mono font-semibold text-slate-600">{f}</span>:{' '}
+                              <span className="line-through text-red-400">{formatVal(h.old_values?.[f])}</span>
+                              {' → '}
+                              <span className="text-emerald-600">{formatVal(h.new_values?.[f])}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      {h.reason && <p className="text-[11px] text-slate-400 italic mt-1">Reason: {h.reason}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

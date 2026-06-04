@@ -66,16 +66,9 @@ export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: 
   const [approverNotes, setApproverNotes] = useState<Record<string, string>>({});
   const [actioningId, setActioningId] = useState<string | null>(null);
 
-  const isHrOrManager = [
-    'Super Admin',
-    'Owner',
-    'Admin',
-    'HR Admin',
-    'HR Manager',
-    'HR Executive',
-    'Director',
-    'Manager'
-  ].includes(profile?.role || '');
+  // Whether THIS user can approve — decided by the API (reporting-based), not a
+  // hardcoded role list, so the actual reporting manager always sees the queue.
+  const [canApprove, setCanApprove] = useState(false);
 
   // 1. Fetch settings
   useEffect(() => {
@@ -106,13 +99,15 @@ export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: 
         setMyRequests(data);
       }
 
-      // Fetch admin requests if HR/Manager
-      if (isHrOrManager) {
-        const adminRes = await fetch(`/api/admin/regularizations?status=${adminTab}`);
-        if (adminRes.ok) {
-          const data = await adminRes.json();
-          setAdminRequests(data);
-        }
+      // Attempt to fetch the approval queue. The API authorizes by reporting
+      // relationship; a 200 means this user can approve (HR or a manager).
+      const adminRes = await fetch(`/api/admin/regularizations?status=${adminTab}`);
+      if (adminRes.ok) {
+        setCanApprove(true);
+        setAdminRequests(await adminRes.json());
+      } else {
+        setCanApprove(false);
+        setAdminRequests([]);
       }
     } catch (err) {
       console.error('Error fetching regularizations:', err);
@@ -124,7 +119,7 @@ export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: 
 
   useEffect(() => {
     fetchRequests();
-  }, [isHrOrManager, adminTab]);
+  }, [adminTab]);
 
   // Handle prefillDate trigger
   useEffect(() => {
@@ -266,7 +261,7 @@ export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
         {/* Left: My Regularizations Log (takes 2 cols if admin panel is shown, else 3) */}
-        <div className={`xl:col-span-${isHrOrManager ? '2' : '3'} space-y-6`}>
+        <div className={`xl:col-span-${canApprove ? '2' : '3'} space-y-6`}>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

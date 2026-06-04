@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
@@ -123,43 +123,37 @@ export default function EmployeeTableSection() {
     });
   }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    supabase
-      .from('employees')
-      .select('*')
-      .order('emp_id', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) setError('Failed to load employees');
-        else setEmployees(data || []);
-        setLoading(false);
-      });
+  // Fetch via the secured, field-filtered API (NOT direct supabase) so that
+  // row-level visibility + field-level security are enforced server-side.
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const res = await fetch('/api/employees?limit=500');
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to load employees');
+      }
+      const json = await res.json();
+      setEmployees(json.data || []);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load employees');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // ── Realtime: sync employee rows ──────────────────────────────────────────
+  useEffect(() => {
+    setLoading(true);
+    fetchEmployees();
+  }, [fetchEmployees]);
+
+  // ── Realtime: on any employee change, re-fetch through the secured API ─────
   useEffect(() => {
     const ch = supabase
       .channel('emp_table_live')
-
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'employees' }, (payload) => {
-        const row = payload.new as Employee;
-        setEmployees((prev) => {
-          if (prev.some((e) => e.id === row.id)) return prev;
-          return [...prev, row].sort((a, b) => a.emp_id.localeCompare(b.emp_id));
-        });
-        toast.success(`New employee added: ${row.first_name} ${row.last_name}`, { duration: 3000 });
-      })
-
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'employees' }, (payload) => {
-        const row = payload.new as Employee;
-        setEmployees((prev) => prev.map((e) => (e.id === row.id ? { ...e, ...row } : e)));
-      })
-
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'employees' }, (payload) => {
-        const row = payload.old as { id: string };
-        setEmployees((prev) => prev.filter((e) => e.id !== row.id));
-      })
-
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'employees' }, () => fetchEmployees())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'employees' }, () => fetchEmployees())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'employees' }, () => fetchEmployees())
       .subscribe();
 
     channelRef.current = ch;
@@ -167,7 +161,7 @@ export default function EmployeeTableSection() {
       supabase.removeChannel(ch);
       channelRef.current = null;
     };
-  }, []);
+  }, [fetchEmployees]);
 
   const canEdit = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'].includes(userRole || '');
   const canDelete = ['Super Admin', 'Owner', 'Admin', 'HR Admin'].includes(userRole || '');
@@ -225,14 +219,18 @@ export default function EmployeeTableSection() {
     if (!confirmDelete) return;
     setDeletingInProgress(true);
     try {
-      const { error } = await supabase.from('employees').delete().eq('id', confirmDelete.id);
-      if (error) throw error;
-      setEmployees(prev => prev.filter(e => e.id !== confirmDelete.id));
+      // Soft delete via the secured, audited API (no direct supabase delete).
+      const res = await fetch(`/api/employees/${confirmDelete.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to delete employee');
+      }
       setSelectedRows(prev => prev.filter(id => id !== confirmDelete.id));
-      toast.success(`${confirmDelete.name} removed from directory`);
+      toast.success(`${confirmDelete.name} archived (recoverable)`);
       setConfirmDelete(null);
-    } catch {
-      toast.error('Failed to delete employee');
+      fetchEmployees();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete employee');
     } finally {
       setDeletingInProgress(false);
     }
@@ -241,29 +239,38 @@ export default function EmployeeTableSection() {
   async function handleBulkStatusChange(newStatus: string) {
     if (!canEdit || !newStatus || selectedRows.length === 0) return;
     try {
-      const { error } = await supabase
-        .from('employees')
-        .update({ status: newStatus })
-        .in('id', selectedRows);
-      if (error) throw error;
-      setEmployees(prev => prev.map(e => selectedRows.includes(e.id) ? { ...e, status: newStatus as EmployeeStatus } : e));
+      const results = await Promise.all(
+        selectedRows.map((id) =>
+          fetch(`/api/employees/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus }),
+          })
+        )
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed) throw new Error(`${failed} update(s) failed`);
       toast.success(`Status updated for ${selectedRows.length} employee${selectedRows.length > 1 ? 's' : ''}`);
       setSelectedRows([]);
-    } catch {
-      toast.error('Failed to update status');
+      fetchEmployees();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update status');
     }
   }
 
   async function handleBulkDelete() {
     if (!canDelete || selectedRows.length === 0) return;
     try {
-      const { error } = await supabase.from('employees').delete().in('id', selectedRows);
-      if (error) throw error;
-      setEmployees(prev => prev.filter(e => !selectedRows.includes(e.id)));
-      toast.success(`${selectedRows.length} employees removed`);
+      const results = await Promise.all(
+        selectedRows.map((id) => fetch(`/api/employees/${id}`, { method: 'DELETE' }))
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed) throw new Error(`${failed} deletion(s) failed`);
+      toast.success(`${selectedRows.length} employees archived`);
       setSelectedRows([]);
-    } catch {
-      toast.error('Failed to delete employees');
+      fetchEmployees();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete employees');
     }
   }
 

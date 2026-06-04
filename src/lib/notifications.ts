@@ -183,3 +183,94 @@ export async function notifyLeaveDecision(
     console.error('notifyLeaveDecision failed:', err);
   }
 }
+
+// ── Attendance Regularizations ─────────────────────────────────────────────
+
+interface RegularizationRow {
+  id: string;
+  employee_id?: string | null;
+  employee_name?: string | null;
+  date?: string | null;
+  status?: string | null;
+  approver_notes?: string | null;
+}
+
+/**
+ * Notify the applicant's reporting manager + HR approvers that a new
+ * attendance-regularization request was submitted. This is the fix for the
+ * "RM did not receive the request" bug — previously NO notification was sent.
+ *
+ * @param employee  { email, manager } of the applicant (manager holds RM email)
+ */
+export async function notifyRegularizationSubmitted(
+  client: any,
+  reg: RegularizationRow,
+  employee: { email?: string | null; manager?: string | null },
+  actorEmail?: string | null
+): Promise<void> {
+  try {
+    const recipients = new Set<string>();
+
+    // 1. Reporting manager (employees.manager holds the manager's email)
+    if (employee.manager && employee.manager.includes('@')) {
+      recipients.add(employee.manager.toLowerCase());
+    }
+
+    // 2. HR approver roles (org-wide safety net so requests are never orphaned)
+    const hrRes = await client.query(
+      `SELECT email FROM users WHERE role = ANY($1) AND email IS NOT NULL`,
+      [HR_APPROVER_ROLES]
+    );
+    hrRes.rows.forEach((r: any) => r.email && recipients.add(String(r.email).toLowerCase()));
+
+    // Never notify the applicant or whoever filed it.
+    if (employee.email) recipients.delete(employee.email.toLowerCase());
+    if (actorEmail) recipients.delete(actorEmail.toLowerCase());
+
+    if (recipients.size === 0) return;
+
+    const who = reg.employee_name || employee.email || 'An employee';
+    await insertNotifications(
+      client,
+      [...recipients].map((email) => ({
+        recipient_email: email,
+        type: 'regularization_submitted',
+        title: 'Attendance Regularization Request',
+        message: `${who} requested an attendance correction for ${fmtDate(reg.date)}. Pending your approval.`,
+        link: '/leave-attendance',
+        entity_id: reg.id,
+      }))
+    );
+  } catch (err) {
+    console.error('notifyRegularizationSubmitted failed:', err);
+  }
+}
+
+/**
+ * Notify the employee that their regularization was approved/rejected.
+ */
+export async function notifyRegularizationDecision(
+  client: any,
+  reg: RegularizationRow,
+  employeeEmail?: string | null
+): Promise<void> {
+  try {
+    if (!employeeEmail) return;
+    const approved = reg.status === 'approved';
+    const note = reg.approver_notes ? ` Note: ${reg.approver_notes}` : '';
+    await insertNotifications(client, [
+      {
+        recipient_email: employeeEmail.toLowerCase(),
+        type: 'regularization_updated',
+        title: approved ? 'Regularization Approved ✅' : 'Regularization Rejected',
+        message: `Your attendance correction for ${fmtDate(reg.date)} was ${
+          approved ? 'approved' : 'rejected'
+        }.${note}`,
+        link: '/leave-attendance',
+        entity_id: reg.id,
+      },
+    ]);
+  } catch (err) {
+    console.error('notifyRegularizationDecision failed:', err);
+  }
+}

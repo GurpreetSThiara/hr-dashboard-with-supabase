@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import { requireAuth, authError, ApiAuthError } from '@/lib/apiAuth';
+import { isHrScope } from '@/lib/employeeVisibility';
+import { notifyRegularizationDecision } from '@/lib/notifications';
 
 export async function POST(
   request: NextRequest,
@@ -13,30 +15,8 @@ export async function POST(
       return NextResponse.json({ error: 'Missing regularization ID' }, { status: 400 });
     }
 
-    const conn = getServerSupabase();
-    if (!conn) {
-      return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
-    }
-
-    // Authenticate user
-    const user = await getServerUser(request, conn.client);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Verify manager/HR permission
-    const profileRes = await conn.client
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const role = profileRes?.data?.role || 'Employee';
-    const allowedRoles = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'];
-    
-    if (!allowedRoles.includes(role)) {
-      return NextResponse.json({ error: 'Forbidden: Manager access required' }, { status: 403 });
-    }
+    // Authenticate (tier + role resolved server-side)
+    const actor = await requireAuth(request);
 
     const body = await request.json();
     const { action, approver_notes } = body as { action: 'approved' | 'rejected'; approver_notes?: string };
@@ -46,11 +26,17 @@ export async function POST(
     }
 
     const result = await withPgClient(async (client) => {
-      // 1. Get regularization request
-      const regRes = await client.query("SELECT * FROM attendance_regularizations WHERE id = $1", [id]);
+      // 1. Get regularization request + the employee's email/manager
+      const regRes = await client.query(
+        `SELECT r.*, e.email AS employee_email, e.manager AS employee_manager
+         FROM attendance_regularizations r
+         LEFT JOIN employees e ON e.id = r.employee_id
+         WHERE r.id = $1`,
+        [id]
+      );
       const reg = regRes.rows[0];
       if (!reg) {
-        throw new Error('Regularization request not found');
+        throw new ApiAuthError('Regularization request not found', 404);
       }
 
       if (reg.status !== 'pending') {
@@ -58,13 +44,28 @@ export async function POST(
       }
 
       // SECURITY: an approver may not approve/reject their own regularization.
-      if (user.email) {
-        const selfRes = await client.query(
-          'SELECT id FROM employees WHERE id = $1 AND LOWER(email) = LOWER($2)',
-          [reg.employee_id, user.email]
+      if (reg.employee_email && reg.employee_email.toLowerCase() === actor.email.toLowerCase()) {
+        throw new ApiAuthError('You cannot approve or reject your own regularization request.', 403);
+      }
+
+      // AUTHORIZATION (reporting-based, not coarse role list):
+      // HR/Admin can approve anyone; otherwise the actor must be the employee's
+      // reporting manager (direct report OR anywhere in their hierarchy).
+      if (!isHrScope(actor)) {
+        const mgrRes = await client.query(
+          `
+          WITH RECURSIVE hier AS (
+            SELECT id, email FROM employees WHERE LOWER(manager) = LOWER($1)
+            UNION ALL
+            SELECT e.id, e.email FROM employees e
+            JOIN hier h ON LOWER(e.manager) = LOWER(h.email)
+          )
+          SELECT 1 FROM hier WHERE id = $2 LIMIT 1
+          `,
+          [actor.email, reg.employee_id]
         );
-        if (selfRes.rows.length > 0) {
-          throw new Error('You cannot approve or reject your own regularization request.');
+        if (mgrRes.rows.length === 0) {
+          throw new ApiAuthError('You can only approve regularizations for your own team', 403);
         }
       }
 
@@ -77,7 +78,13 @@ export async function POST(
            RETURNING *`,
           [approver_notes || null, id]
         );
-        return updateRes.rows[0];
+        const rejected = updateRes.rows[0];
+        await notifyRegularizationDecision(
+          client,
+          { ...rejected, approver_notes },
+          reg.employee_email
+        );
+        return rejected;
       }
 
       // Action is 'approved'
@@ -161,11 +168,19 @@ export async function POST(
         );
       }
 
-      return updateRes.rows[0];
+      const approved = updateRes.rows[0];
+      await notifyRegularizationDecision(
+        client,
+        { ...approved, approver_notes },
+        reg.employee_email
+      );
+      return approved;
     });
 
     return NextResponse.json({ success: true, data: result });
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }

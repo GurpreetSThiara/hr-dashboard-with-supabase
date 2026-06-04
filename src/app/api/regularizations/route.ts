@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
-import { differenceInDays, parseISO, format } from 'date-fns';
+import { differenceInDays, parseISO } from 'date-fns';
+import { notifyRegularizationSubmitted } from '@/lib/notifications';
 
 // GET — Retrieve regularization requests for the current logged-in employee
 export async function GET(request: NextRequest) {
@@ -82,8 +83,11 @@ export async function POST(request: NextRequest) {
         throw new Error(`Policy violation: Regularization cannot be requested more than ${settings.max_past_days_regularization} days in the past. (Selected date was ${diff} days ago)`);
       }
 
-      // 3. Find employee record
-      const empRes = await client.query("SELECT id, first_name, last_name FROM employees WHERE email = $1", [user.email]);
+      // 3. Find employee record (including reporting manager for notifications)
+      const empRes = await client.query(
+        "SELECT id, first_name, last_name, email, manager FROM employees WHERE email = $1",
+        [user.email]
+      );
       const emp = empRes.rows[0];
       if (!emp) {
         throw new Error('Employee profile not found. Please contact an admin.');
@@ -114,7 +118,18 @@ export async function POST(request: NextRequest) {
         requested_check_out || null,
         reason
       ]);
-      return res.rows[0];
+      const created = res.rows[0];
+
+      // ── FIX: notify the reporting manager + HR so the request is actually
+      //    delivered (previously no notification was ever sent). Best-effort.
+      await notifyRegularizationSubmitted(
+        client,
+        created,
+        { email: emp.email, manager: emp.manager },
+        user.email
+      );
+
+      return created;
     });
 
     return NextResponse.json(result, { status: 201 });

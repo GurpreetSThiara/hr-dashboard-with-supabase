@@ -1,54 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { getServerSupabase, getServerUser } from '@/lib/supabase/server';
+import { requireAuth, authError, ApiAuthError } from '@/lib/apiAuth';
+import { getManageableEmployeeIds, isHrScope, isManagerScope } from '@/lib/employeeVisibility';
 
-// GET — Retrieve all pending or recent regularization requests (Admin/HR access)
+/**
+ * GET /api/admin/regularizations — the approval queue.
+ *
+ * Scope is REPORTING-BASED, not a coarse role list:
+ *  - HR/Admin (tier ≤ 6): all requests.
+ *  - Reporting managers: only requests from their reporting hierarchy.
+ *  - Anyone else: 403.
+ *
+ * This fixes the bug where the actual reporting manager couldn't see (and so
+ * couldn't action) their team's requests while unrelated managers saw everything.
+ */
 export async function GET(request: NextRequest) {
   try {
-    const conn = getServerSupabase();
-    if (!conn) {
-      return NextResponse.json({ error: 'Supabase connection not configured' }, { status: 503 });
-    }
+    const actor = await requireAuth(request);
 
-    const user = await getServerUser(request, conn.client);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Verify permission: Must be HR/Manager
-    const profileRes = await conn.client
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const role = profileRes?.data?.role || 'Employee';
-    const allowedRoles = ['Super Admin', 'Owner', 'Admin', 'HR Admin', 'HR Manager', 'HR Executive', 'Director', 'Manager'];
-    
-    if (!allowedRoles.includes(role)) {
-      return NextResponse.json({ error: 'Forbidden: Manager access required' }, { status: 403 });
+    if (!isHrScope(actor) && !isManagerScope(actor)) {
+      throw new ApiAuthError('Forbidden: you do not manage any team', 403);
     }
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') || 'pending';
 
     const result = await withPgClient(async (client) => {
-      let query = "SELECT * FROM attendance_regularizations";
-      const values: any[] = [];
-      
+      // null = HR (all employees); otherwise restrict to the manager's hierarchy
+      const ids = await getManageableEmployeeIds(client, actor);
+
+      const conds: string[] = [];
+      const vals: any[] = [];
+
       if (status !== 'all') {
-        query += " WHERE status = $1";
-        values.push(status);
+        vals.push(status);
+        conds.push(`status = $${vals.length}`);
       }
-      
-      query += " ORDER BY created_at DESC";
-      
-      const res = await client.query(query, values);
+      if (ids !== null) {
+        if (ids.length === 0) return [];
+        vals.push(ids);
+        conds.push(`employee_id = ANY($${vals.length}::uuid[])`);
+      }
+
+      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+      const res = await client.query(
+        `SELECT *,
+                EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 AS age_days
+         FROM attendance_regularizations
+         ${where}
+         ORDER BY created_at DESC`,
+        vals
+      );
       return res.rows;
     });
 
     return NextResponse.json(result);
   } catch (error: any) {
+    const authResp = authError(error);
+    if (authResp) return authResp;
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
