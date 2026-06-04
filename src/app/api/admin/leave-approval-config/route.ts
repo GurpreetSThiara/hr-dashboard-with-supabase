@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
 import { getActorFromRequest, isHROrAbove } from '@/lib/leavePermissions';
+import { logAdminAction } from '@/lib/adminAudit';
 
 /** GET  /api/admin/leave-approval-config  — list all rows */
 export async function GET(request: NextRequest) {
@@ -67,6 +68,15 @@ export async function PUT(request: NextRequest) {
         results.push(res.rows[0]);
       }
       return results;
+    });
+
+    logAdminAction({
+      actor,
+      action: 'leave_approval_config.update',
+      entityType: 'leave_approval_config',
+      summary: `Updated leave approval config (${body.length} roles)`,
+      newValue: body,
+      request,
     });
 
     return NextResponse.json(rows);

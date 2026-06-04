@@ -66,6 +66,25 @@ export async function requireAdmin(request: NextRequest): Promise<AuthedActor> {
   return requireMaxTier(request, 2);
 }
 
+/**
+ * Permission-based guard: passes if the actor has the given permission via
+ * EITHER their tier (role_permissions matrix) OR an active permission-set grant
+ * (direct or via role group). This is the enforcement counterpart to the
+ * effective-permissions resolver, so additive grants actually unlock server
+ * access — not just UI.
+ */
+export async function requirePermission(
+  request: NextRequest,
+  permission: string
+): Promise<AuthedActor> {
+  const actor = await requireAuth(request);
+  // Lazy import avoids a circular dependency (accessControl → pgClient only).
+  const { actorHasPermission } = await import('@/lib/accessControl');
+  const ok = await actorHasPermission({ email: actor.email, tier: actor.tier }, permission as any);
+  if (!ok) throw new ApiAuthError('Forbidden — missing permission: ' + permission, 403);
+  return actor;
+}
+
 /** manage_employees — tier ≤ 7 (Super Admin … Recruiter). */
 export async function requireManageEmployees(request: NextRequest): Promise<AuthedActor> {
   return requireMaxTier(request, 7);

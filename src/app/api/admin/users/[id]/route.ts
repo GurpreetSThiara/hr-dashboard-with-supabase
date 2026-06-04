@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
 import { requireAdmin, authError, ROLE_TIER_MAP } from '@/lib/apiAuth';
+import { logAdminAction } from '@/lib/adminAudit';
 // @ts-ignore
 import pg from 'pg';
 
@@ -97,6 +98,16 @@ export async function PUT(
         }]);
       } catch {}
 
+      logAdminAction({
+        actor,
+        action: 'user.role_change',
+        entityType: 'user',
+        entityId: id,
+        summary: `Changed ${targetUser.email}: ${targetUser.role} → ${newRole}`,
+        oldValue: { role: targetUser.role, tier: targetUser.tier },
+        newValue: { role: newRole, tier: newTier },
+        request,
+      });
       return NextResponse.json({ success: true, newRole, newTier });
     }
 
@@ -139,6 +150,16 @@ export async function PUT(
         [newRole, newTier, id]
       );
 
+      logAdminAction({
+        actor,
+        action: 'user.role_change',
+        entityType: 'user',
+        entityId: id,
+        summary: `Changed ${targetUser.email}: ${targetUser.role} → ${newRole}`,
+        oldValue: { role: targetUser.role, tier: targetUser.tier },
+        newValue: { role: newRole, tier: newTier },
+        request,
+      });
       return NextResponse.json({ success: true, newRole, newTier });
     } finally {
       await pgClient.end().catch(() => {});
@@ -193,6 +214,16 @@ export async function DELETE(
         await supabase.auth.admin.updateUserById(id, { ban_duration: '876600h' });
       } catch {}
 
+      logAdminAction({
+        actor,
+        action: 'user.deactivate',
+        entityType: 'user',
+        entityId: id,
+        summary: `Deactivated user (was ${targetUser.role})`,
+        oldValue: { role: targetUser.role, tier: targetUser.tier },
+        newValue: { role: 'Read-Only User', tier: 18, deactivated: true },
+        request,
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -228,6 +259,16 @@ export async function DELETE(
         [id]
       );
 
+      logAdminAction({
+        actor,
+        action: 'user.deactivate',
+        entityType: 'user',
+        entityId: id,
+        summary: `Deactivated user (was ${targetUser.role})`,
+        oldValue: { role: targetUser.role, tier: targetUser.tier },
+        newValue: { role: 'Read-Only User', tier: 18, deactivated: true },
+        request,
+      });
       return NextResponse.json({ success: true });
     } finally {
       await pgClient.end().catch(() => {});

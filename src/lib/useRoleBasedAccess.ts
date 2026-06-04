@@ -39,14 +39,18 @@ const DEFAULT_PERMISSIONS: Record<Permission, number[]> = {
 };
 
 export function useRoleBasedAccess() {
-  const { role, tier, customPermissions } = useAuth();
+  const { role, tier, customPermissions, effectivePermissions } = useAuth();
 
   // Use DB-loaded permissions if available, else fall back to hardcoded defaults
   const activePermissions: Record<string, number[]> = customPermissions || DEFAULT_PERMISSIONS;
 
   function hasPermission(permission: Permission): boolean {
+    // Prefer the server-computed effective set (tier grants + permission-set
+    // grants) so UI gating matches server enforcement exactly.
+    if (effectivePermissions) return effectivePermissions.includes(permission);
+
+    // Fallback before the effective set has loaded: tier matrix.
     if (!tier) return false;
-    // Fallback to DEFAULT_PERMISSIONS if the custom configuration doesn't have this key yet
     const allowedTiers = activePermissions[permission] || DEFAULT_PERMISSIONS[permission];
     if (!allowedTiers) return false;
     return allowedTiers.includes(tier);

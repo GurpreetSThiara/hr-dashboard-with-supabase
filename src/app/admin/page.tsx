@@ -11,18 +11,24 @@ import UsersTab from './components/UsersTab';
 import AttendanceSettingsTab from './components/AttendanceSettingsTab';
 import LeavePermissionsTab from './components/LeavePermissionsTab';
 import HolidaysTab from './components/HolidaysTab';
+import AdminAuditTab from './components/AdminAuditTab';
+import AccessControlTab from './components/AccessControlTab';
+import CustomObjectsTab from './components/CustomObjectsTab';
 
-type TabType = 'users' | 'permissions' | 'policies' | 'holidays' | 'checkin' | 'attendance-settings' | 'hierarchy' | 'leave-permissions';
+type TabType = 'users' | 'permissions' | 'access-control' | 'custom-objects' | 'policies' | 'holidays' | 'checkin' | 'attendance-settings' | 'hierarchy' | 'leave-permissions' | 'audit';
 
 const TABS: { id: TabType; label: string; icon: string; description: string }[] = [
   { id: 'users',             label: 'Users',              icon: 'UsersIcon',             description: 'Manage user accounts and role assignments' },
   { id: 'permissions',       label: 'Roles & Permissions', icon: 'ShieldCheckIcon',      description: 'Configure what each role can access' },
+  { id: 'access-control',    label: 'Access Control',      icon: 'KeyIcon',              description: 'Role groups and permission sets (additive, time-boxed grants)' },
+  { id: 'custom-objects',    label: 'Custom Objects',      icon: 'CubeIcon',             description: 'Define dynamic business objects and fields without code' },
   { id: 'policies',          label: 'Leave Management',    icon: 'CalendarDaysIcon',     description: 'Manage leave types, policy versions, and all leave requests' },
   { id: 'holidays',          label: 'Holiday Management',  icon: 'SunIcon',              description: 'Configure company holidays, optional holidays, and holiday policies' },
   { id: 'leave-permissions', label: 'Leave Permissions',   icon: 'LockClosedIcon',       description: 'Configure visibility, approval authority, delegations, and audit log' },
   { id: 'checkin',           label: 'Attendance Logs',     icon: 'ClockIcon',            description: 'View employee check-in / check-out history' },
   { id: 'attendance-settings', label: 'Attendance Settings', icon: 'Cog6ToothIcon',     description: 'Configure global attendance rules, allowed check-in roles, and regularization limits' },
   { id: 'hierarchy',         label: 'Org Hierarchy',       icon: 'BuildingOffice2Icon',  description: 'Manage reporting relationships' },
+  { id: 'audit',             label: 'Audit Log',           icon: 'ClipboardDocumentListIcon', description: 'Immutable trail of every privileged administrative action' },
 ];
 
 export default function AdminPage() {
@@ -79,6 +85,9 @@ export default function AdminPage() {
           {activeTab === 'attendance-settings' && <AttendanceSettingsTab />}
           {activeTab === 'leave-permissions'   && <LeavePermissionsTab />}
           {activeTab === 'holidays'            && <HolidaysTab />}
+          {activeTab === 'audit'               && <AdminAuditTab />}
+          {activeTab === 'access-control'      && <AccessControlTab />}
+          {activeTab === 'custom-objects'      && <CustomObjectsTab />}
         </div>
       </div>
     </AppLayout>

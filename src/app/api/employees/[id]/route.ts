@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { requireAuth, requireManageEmployees, authError, ApiAuthError } from '@/lib/apiAuth';
+import { requireAuth, requirePermission, authError, ApiAuthError } from '@/lib/apiAuth';
 import { filterEmployeeForActor, isHrFieldViewer } from '@/lib/employeeFields';
 import { canViewEmployee } from '@/lib/employeeVisibility';
 import { writeEmployeeAudit, diffRows } from '@/lib/employeeAudit';
@@ -125,7 +125,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const actor = await requireManageEmployees(request);
+    const actor = await requirePermission(request, 'manage_employees');
     const { id } = await params;
     let reason: string | null = null;
     try { reason = (await request.json())?.reason ?? null; } catch { /* no body */ }

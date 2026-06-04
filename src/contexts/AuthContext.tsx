@@ -20,6 +20,8 @@ interface AuthContextValue {
   role: string;
   tier: number;
   customPermissions: Record<string, number[]> | null;
+  /** Full effective permission keys (tier grants + permission-set grants). */
+  effectivePermissions: string[] | null;
   refreshPermissions: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<any>;
@@ -68,6 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [customPermissions, setCustomPermissions] = useState<Record<string, number[]> | null>(null);
+  const [effectivePermissions, setEffectivePermissions] = useState<string[] | null>(null);
 
   // Helper: derive role + tier from profile / metadata / fallback
   const role = profile?.role || user?.user_metadata?.role || 'Employee';
@@ -109,11 +112,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const loadPermissions = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/role-permissions');
-      if (!res.ok) return;
-      const data = await res.json();
-      setCustomPermissions(data.isDefault ? null : data.matrix);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomPermissions(data.isDefault ? null : data.matrix);
+      }
     } catch {
       // Non-fatal — runtime falls back to hardcoded permissions
+    }
+    // Effective permissions = tier grants merged with permission-set grants.
+    // This is authoritative on the server too, so UI and API stay consistent.
+    try {
+      const eff = await fetch('/api/me/effective-permissions');
+      if (eff.ok) {
+        const d = await eff.json();
+        setEffectivePermissions(Array.isArray(d.permissions) ? d.permissions : null);
+      }
+    } catch {
+      // Non-fatal — falls back to tier matrix
     }
   }, []);
 
@@ -203,6 +218,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     role,
     tier,
     customPermissions,
+    effectivePermissions,
     refreshPermissions: loadPermissions,
     refreshProfile,
     signIn,

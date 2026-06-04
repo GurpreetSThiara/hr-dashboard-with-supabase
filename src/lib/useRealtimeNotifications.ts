@@ -12,6 +12,7 @@ export interface Notification {
     | 'employee_added'
     | 'employee_deleted'
     | 'leave_submitted'
+    | 'regularization_submitted'
     | 'regularization_updated';
   title: string;
   message: string;
@@ -30,7 +31,8 @@ const APPROVER_ROLES = new Set([
 
 const VALID_TYPES = new Set([
   'leave_approved', 'leave_rejected', 'employee_added',
-  'employee_deleted', 'leave_submitted', 'regularization_updated',
+  'employee_deleted', 'leave_submitted',
+  'regularization_submitted', 'regularization_updated',
 ]);
 
 function mapRow(row: any): Notification {
@@ -139,25 +141,12 @@ export function useRealtimeNotifications() {
             }
           )
 
-          // Ephemeral: my regularization decision
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'regularization_requests' },
-            (payload) => {
-              const data = payload.new as any;
-              const old = payload.old as any;
-              if (data.status === old.status) return;
-              if (data.employee_id !== userId && (data.employee_email ?? '').toLowerCase() !== userEmail) return;
-              addNotification({
-                id: `reg-upd-${data.id}-${Date.now()}`,
-                type: 'regularization_updated',
-                title: `Regularization ${data.status === 'approved' ? 'Approved' : 'Rejected'}`,
-                message: `Your attendance regularization request for ${data.regularization_date} has been ${data.status}.`,
-                timestamp: new Date().toISOString(),
-                read: false,
-              });
-            }
-          )
+          // NOTE: regularization submit/decision notifications are now delivered
+          // through the persistent `notifications` table (see notifications.ts ->
+          // notifyRegularizationSubmitted / notifyRegularizationDecision), which
+          // this hook already subscribes to. The previous ephemeral subscription
+          // here pointed at a non-existent table (`regularization_requests`) and
+          // never fired, so it has been removed.
 
           .subscribe();
 

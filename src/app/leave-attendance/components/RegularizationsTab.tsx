@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import {
   Calendar as CalendarIcon,
@@ -42,7 +41,6 @@ interface RegularizationsTabProps {
 
 export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: RegularizationsTabProps) {
   const supabase = createClient();
-  const { user, profile } = useAuth();
 
   // Settings
   const [settings, setSettings] = useState<any>(null);
@@ -331,7 +329,7 @@ export default function RegularizationsTab({ prefillDate, onClearPrefillDate }: 
         </div>
 
         {/* Right: Admin Approvals Panel (only visible for HR/Managers) */}
-        {isHrOrManager && (
+        {canApprove && (
           <div className="space-y-6">
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">

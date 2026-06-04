@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withPgClient } from '@/lib/pgClient';
-import { requireAuth, requireManageEmployees, authError, ApiAuthError } from '@/lib/apiAuth';
+import { requireAuth, requirePermission, authError, ApiAuthError } from '@/lib/apiAuth';
 import { filterEmployeeForActor } from '@/lib/employeeFields';
 import { getManageableEmployeeIds, isHrScope, isManagerScope } from '@/lib/employeeVisibility';
 import { writeEmployeeAudit } from '@/lib/employeeAudit';
@@ -74,7 +74,8 @@ export async function GET(request: NextRequest) {
 /** POST /api/employees — create (manage_employees) + audit. */
 export async function POST(request: NextRequest) {
   try {
-    const actor = await requireManageEmployees(request);
+    // Permission-based: tier grant OR an additive permission-set grant.
+    const actor = await requirePermission(request, 'manage_employees');
     const body = await request.json();
 
     const created = await withPgClient(async (client) => {

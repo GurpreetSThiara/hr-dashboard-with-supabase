@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, envMisconfiguredError } from '@/lib/supabase/server';
 import { withPgClient } from '@/lib/pgClient';
 import { requireAuth, requireAdmin, authError } from '@/lib/apiAuth';
+import { logAdminAction } from '@/lib/adminAudit';
 
 const TIER_TO_ROLE: Record<number, string> = {
   1: 'Super Admin', 2: 'Owner', 3: 'Admin', 4: 'HR Admin', 5: 'HR Manager',
@@ -181,6 +182,17 @@ export async function POST(request: NextRequest) {
 
       if (upsertError) throw upsertError;
     }
+
+    // Audit: record the full new matrix (admin permission change is high-impact)
+    logAdminAction({
+      actor,
+      action: 'permission_matrix.update',
+      entityType: 'role_permissions',
+      entityId: 'matrix',
+      summary: `Updated role-permission matrix (${Object.keys(matrix).length} permissions)`,
+      newValue: matrix,
+      request,
+    });
 
     return NextResponse.json({ success: true, savedAt: now });
   } catch (err: any) {
