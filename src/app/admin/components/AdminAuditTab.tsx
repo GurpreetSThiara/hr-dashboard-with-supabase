@@ -85,11 +85,15 @@ export default function AdminAuditTab() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center"><Icon name="ArrowPathIcon" size={20} className="animate-spin mx-auto text-blue-600" /></div>
+        <div className="p-4 space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-lg animate-pulse" />)}
+        </div>
       ) : rows.length === 0 ? (
         <div className="p-8 text-center text-sm text-slate-400">No audit entries</div>
       ) : (
-        <table className="w-full text-sm">
+      <>
+        {/* Desktop table */}
+        <table className="hidden md:table w-full text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               {['When', 'Actor', 'Action', 'Summary', ''].map((h) => (
@@ -148,6 +152,51 @@ export default function AdminAuditTab() {
             ))}
           </tbody>
         </table>
+
+        {/* Mobile cards */}
+        <div className="md:hidden p-3 space-y-2.5">
+          {rows.map((r) => (
+            <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className={`px-2 py-0.5 text-[11px] font-semibold rounded-full ${ACTION_COLORS[r.action] || 'bg-slate-100 text-slate-600'}`}>
+                  {r.action}
+                </span>
+                <span className="text-[11px] text-slate-400 flex-shrink-0">{new Date(r.created_at).toLocaleString('en-GB')}</span>
+              </div>
+              {r.summary && <p className="text-xs text-slate-700 mb-1.5">{r.summary}</p>}
+              <p className="text-[11px] text-slate-500">
+                by <span className="font-medium text-slate-700">{r.actor_email || '—'}</span>
+                {r.actor_role ? <span className="text-slate-400"> · {r.actor_role}</span> : null}
+              </p>
+              {(r.old_value || r.new_value) && (
+                <>
+                  <button
+                    onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                    className="mt-2 text-xs text-blue-600 font-medium"
+                  >
+                    {expanded === r.id ? 'Hide changes' : 'View changes'}
+                  </button>
+                  {expanded === r.id && (
+                    <div className="mt-2 space-y-2 text-[11px]">
+                      <div>
+                        <p className="font-bold text-slate-400 uppercase mb-1">Before</p>
+                        <pre className="bg-slate-50 border border-slate-200 rounded p-2 overflow-x-auto text-slate-600">{r.old_value ? JSON.stringify(r.old_value, null, 2) : '—'}</pre>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-400 uppercase mb-1">After</p>
+                        <pre className="bg-slate-50 border border-slate-200 rounded p-2 overflow-x-auto text-slate-600">{r.new_value ? JSON.stringify(r.new_value, null, 2) : '—'}</pre>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        {r.entity_type ? `Entity: ${r.entity_type}${r.entity_id ? ` (${r.entity_id})` : ''} · ` : ''}IP: {r.ip_address || 'n/a'}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </>
       )}
 
       {totalPages > 1 && (

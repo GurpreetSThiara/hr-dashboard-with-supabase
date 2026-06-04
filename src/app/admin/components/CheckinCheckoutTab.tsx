@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import ResponsiveTable from '@/components/ui/ResponsiveTable';
 
 interface CheckinLog {
   id: string;
@@ -177,48 +178,29 @@ export default function CheckinCheckoutTab() {
           </div>
 
           {loading ? (
-            <div className="px-6 py-8 text-center text-slate-500">Loading...</div>
-          ) : logs.length === 0 ? (
-            <div className="px-6 py-8 text-center text-slate-500">No check-in/out records found</div>
+            <div className="px-4 sm:px-6 py-6 space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-11 bg-slate-100 rounded-lg animate-pulse" />)}
+            </div>
           ) : (
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Date</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Check-in</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Check-out</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Duration</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Location</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Device</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {logs.map((log, idx) => (
-                  <tr
-                    key={log.id}
-                    className={`hover:bg-slate-50 transition-colors ${
-                      idx === 0 && !log.check_out_time ? 'bg-emerald-50/40' : ''
-                    }`}
-                  >
-                    <td className="px-6 py-3 text-sm text-slate-700">{formatDate(log.check_in_time)}</td>
-                    <td className="px-6 py-3 text-sm font-medium text-slate-900">{formatTime(log.check_in_time)}</td>
-                    <td className="px-6 py-3 text-sm text-slate-700">
-                      {log.check_out_time ? (
-                        formatTime(log.check_out_time)
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-3 text-sm text-slate-700">{formatDuration(log.duration_minutes)}</td>
-                    <td className="px-6 py-3 text-sm text-slate-700">{log.location || '-'}</td>
-                    <td className="px-6 py-3 text-sm text-slate-700">{log.device || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="p-3 sm:p-0">
+            <ResponsiveTable
+              rows={logs}
+              keyOf={(l) => l.id}
+              emptyText="No check-in/out records found"
+              columns={[
+                { key: 'date', header: 'Date', primary: true, render: (l) => formatDate(l.check_in_time) },
+                { key: 'in', header: 'Check-in', render: (l) => <span className="font-medium text-slate-900">{formatTime(l.check_in_time)}</span> },
+                { key: 'out', header: 'Check-out', render: (l) => l.check_out_time ? formatTime(l.check_out_time) : (
+                  <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active
+                  </span>
+                )},
+                { key: 'dur', header: 'Duration', render: (l) => formatDuration(l.duration_minutes) },
+                { key: 'loc', header: 'Location', render: (l) => l.location || '-' },
+                { key: 'dev', header: 'Device', render: (l) => l.device || '-' },
+              ]}
+            />
+            </div>
           )}
         </div>
       )}

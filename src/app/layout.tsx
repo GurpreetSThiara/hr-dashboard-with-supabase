@@ -7,6 +7,9 @@ import { AuthProvider } from '@/contexts/AuthContext';
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // Allow content to extend into the iOS safe areas so env(safe-area-inset-*)
+  // works for the mobile bottom nav and drawers.
+  viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {

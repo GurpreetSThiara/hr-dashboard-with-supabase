@@ -5,50 +5,18 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
-import { useRoleBasedAccess, Permission } from '@/lib/useRoleBasedAccess';
+import { useRoleBasedAccess } from '@/lib/useRoleBasedAccess';
 import { useAuth } from '@/contexts/AuthContext';
-
-interface NavItem {
-  id: string;
-  label: string;
-  icon: string;
-  href: string;
-  badge?: number;
-  section?: string;
-}
+import { NAV_ITEMS, SECTIONS } from '@/lib/navItems';
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  /** Mobile-drawer mode: always expanded, hides the desktop collapse toggle. */
+  mobile?: boolean;
+  /** Called when a nav link is activated (used to close the mobile drawer). */
+  onNavigate?: () => void;
 }
-
-interface NavItemWithRole extends NavItem {
-  requiredPermission?: Permission;
-}
-
-const NAV_ITEMS: NavItemWithRole[] = [
-  { id: 'nav-my-dashboard', label: 'My Dashboard',     icon: 'UserIcon',           href: '/my-dashboard',         section: 'OVERVIEW' },
-  { id: 'nav-hr-dashboard', label: 'HR Dashboard',     icon: 'ChartBarSquareIcon', href: '/hr-dashboard',         section: 'OVERVIEW',   requiredPermission: 'view_hr_dashboard'  },
-  { id: 'nav-team',      label: 'Team',               icon: 'UsersIcon',          href: '/employee-management',  section: 'PEOPLE',     requiredPermission: 'view_employees'  },
-  { id: 'nav-organization', label: 'Organization',    icon: 'BuildingOffice2Icon', href: '/organization',        section: 'PEOPLE',     requiredPermission: 'view_dashboard'  },
-  { id: 'nav-leave',     label: 'Leave & Attendance', icon: 'CalendarDaysIcon',   href: '/leave-attendance',     section: 'OPERATIONS', requiredPermission: 'view_leaves'     },
-  { id: 'nav-admin',     label: 'Admin Management',   icon: 'Cog6ToothIcon',      href: '/admin',                section: 'SYSTEM',     requiredPermission: 'admin_panel'     },
-  
-  // COMMENTED OUT FOR FUTURE USE
-  // { id: 'nav-onboarding', label: 'Onboarding', icon: 'ClipboardDocumentCheckIcon', href: '/hr-dashboard', badge: 5, section: 'PEOPLE', requiredTier: 7 },
-  // { id: 'nav-recruitment', label: 'Recruitment', icon: 'BriefcaseIcon', href: '/hr-dashboard', badge: 12, section: 'PEOPLE', requiredTier: 7 },
-  // { id: 'nav-payroll', label: 'Payroll', icon: 'BanknotesIcon', href: '/hr-dashboard', section: 'OPERATIONS', requiredTier: 9 },
-  // { id: 'nav-performance', label: 'Performance', icon: 'StarIcon', href: '/hr-dashboard', section: 'OPERATIONS', requiredTier: 7 },
-  // { id: 'nav-calendar', label: 'Company Calendar', icon: 'CalendarIcon', href: '/hr-dashboard', section: 'COMPANY', requiredTier: 18 },
-  // { id: 'nav-policies', label: 'Policies', icon: 'DocumentTextIcon', href: '/hr-dashboard', badge: 2, section: 'COMPANY', requiredTier: 7 },
-  // { id: 'nav-terms', label: 'Terms & Conditions', icon: 'ScaleIcon', href: '/hr-dashboard', section: 'COMPANY', requiredTier: 7 },
-  // { id: 'nav-reports', label: 'Reports & Analytics', icon: 'ChartPieIcon', href: '/hr-dashboard', section: 'COMPLIANCE', requiredTier: 11 },
-  // { id: 'nav-compliance', label: 'Compliance', icon: 'ShieldCheckIcon', href: '/hr-dashboard', badge: 1, section: 'COMPLIANCE', requiredTier: 10 },
-  // { id: 'nav-settings', label: 'Settings', icon: 'Cog6ToothIcon', href: '/hr-dashboard', section: 'SYSTEM', requiredTier: 15 },
-];
-
-const SECTIONS = ['OVERVIEW', 'PEOPLE', 'OPERATIONS', 'SYSTEM'];
-// REMOVED: 'COMPANY', 'COMPLIANCE' (for future features)
 
 const AVATAR_COLORS = [
   'bg-blue-600', 'bg-violet-600', 'bg-emerald-600', 'bg-amber-600',
@@ -69,11 +37,14 @@ function getInitials(name: string | null | undefined, email: string) {
   return (email[0] || '?').toUpperCase();
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed: collapsedProp, onToggle, mobile = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const { hasPermission } = useRoleBasedAccess();
   const { profile, user, role } = useAuth();
+
+  // In mobile-drawer mode the sidebar is always fully expanded.
+  const collapsed = mobile ? false : collapsedProp;
 
   const visibleItems = NAV_ITEMS.filter(item =>
     !item.requiredPermission || hasPermission(item.requiredPermission)
@@ -131,6 +102,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   >
                     <Link
                       href={item.href}
+                      onClick={onNavigate}
                       className={`sidebar-nav-item ${exactActive ? 'active' : ''} ${collapsed ? 'justify-center' : ''}`}
                     >
                       <Icon
@@ -196,17 +168,16 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       </div>
 
-      {/* Toggle button */}
-      <button
-        onClick={onToggle}
-        className="flex items-center justify-center h-10 border-t border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        <Icon
-          name={collapsed ? 'ChevronRightIcon' : 'ChevronLeftIcon'}
-          size={16}
-        />
-      </button>
+      {/* Toggle button (desktop only) */}
+      {!mobile && (
+        <button
+          onClick={onToggle}
+          className="flex items-center justify-center h-10 border-t border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <Icon name={collapsed ? 'ChevronRightIcon' : 'ChevronLeftIcon'} size={16} />
+        </button>
+      )}
     </aside>
   );
 }

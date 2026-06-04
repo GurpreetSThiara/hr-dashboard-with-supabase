@@ -71,8 +71,8 @@ export default function ReportingHierarchyTab() {
         <p className="text-xs mt-1">Click "Edit" on any employee to reassign their reporting manager. HR Admin and above roles can make changes.</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <table className="w-full">
+      <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+        <table className="w-full min-w-[640px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Employee</th>

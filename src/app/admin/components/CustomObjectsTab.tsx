@@ -8,6 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
 import DynamicRecordsPanel from './DynamicRecordsPanel';
+import Sheet from '@/components/ui/Sheet';
 
 const FIELD_TYPES = [
   'text','number','currency','percent','date','datetime','email','phone','url',
@@ -218,47 +219,47 @@ export default function CustomObjectsTab() {
       </div>
 
       {/* Field-Level Security modal */}
-      {flsField && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setFlsField(null)}>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-xl w-full p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-1">
-              <h4 className="text-sm font-bold text-slate-800">Field Security — {flsField.label}</h4>
-              <button onClick={() => setFlsField(null)} className="text-slate-400 hover:text-slate-700"><Icon name="XMarkIcon" size={16} /></button>
-            </div>
-            <p className="text-[11px] text-slate-400 mb-3">
-              No rules = open to anyone with record access. Add rules to restrict this field to specific principals (admins always have full access).
-            </p>
+      <Sheet
+        open={!!flsField}
+        onClose={() => setFlsField(null)}
+        title={flsField ? `Field Security — ${flsField.label}` : 'Field Security'}
+        maxWidth="sm:max-w-xl"
+        footer={
+          <>
+            <button onClick={() => setFlsField(null)} className="px-4 py-2 bg-slate-100 text-slate-600 text-sm font-semibold rounded-lg">Cancel</button>
+            <button onClick={saveFls} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg">Save</button>
+          </>
+        }
+      >
+        <p className="text-[11px] text-slate-400 mb-3">
+          No rules = open to anyone with record access. Add rules to restrict this field to specific principals (admins always have full access).
+        </p>
 
-            <div className="flex gap-2 mb-3 flex-wrap items-center">
-              <select value={flsNew.principal_type} onChange={e => setFlsNew(s => ({ ...s, principal_type: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
-                {['role', 'user', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input value={flsNew.principal_id} onChange={e => setFlsNew(s => ({ ...s, principal_id: e.target.value }))} placeholder={flsNew.principal_type === 'user' ? 'email' : flsNew.principal_type === 'role' ? 'role name' : flsNew.principal_type} className="flex-1 min-w-[120px] text-xs border border-slate-200 rounded-lg px-2 py-1.5" />
-              <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={flsNew.can_view} onChange={e => setFlsNew(s => ({ ...s, can_view: e.target.checked }))} /> view</label>
-              <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={flsNew.can_edit} onChange={e => setFlsNew(s => ({ ...s, can_edit: e.target.checked }))} /> edit</label>
-              <button onClick={addFlsRow} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg">Add rule</button>
-            </div>
-
-            {flsRows.length === 0 ? (
-              <p className="text-xs text-slate-400 mb-3">No rules — field is unrestricted.</p>
-            ) : (
-              <div className="space-y-1.5 mb-3 max-h-52 overflow-y-auto">
-                {flsRows.map((r, i) => (
-                  <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg text-xs">
-                    <span className="text-slate-700">{r.principal_type}: <b>{r.principal_id}</b> — {r.can_view ? 'view' : ''}{r.can_edit ? '+edit' : ''}{!r.can_view && !r.can_edit ? 'no access' : ''}</span>
-                    <button onClick={() => setFlsRows(rows => rows.filter((_, j) => j !== i))} className="text-red-500 hover:text-red-700">Remove</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setFlsField(null)} className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg">Cancel</button>
-              <button onClick={saveFls} className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg">Save</button>
-            </div>
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 mb-3">
+          <select value={flsNew.principal_type} onChange={e => setFlsNew(s => ({ ...s, principal_type: e.target.value }))} className="text-sm border border-slate-200 rounded-lg px-2 py-2">
+            {['role', 'user', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input value={flsNew.principal_id} onChange={e => setFlsNew(s => ({ ...s, principal_id: e.target.value }))} placeholder={flsNew.principal_type === 'user' ? 'email' : flsNew.principal_type === 'role' ? 'role name' : flsNew.principal_type} className="flex-1 min-w-0 text-sm border border-slate-200 rounded-lg px-3 py-2" />
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={flsNew.can_view} onChange={e => setFlsNew(s => ({ ...s, can_view: e.target.checked }))} /> view</label>
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={flsNew.can_edit} onChange={e => setFlsNew(s => ({ ...s, can_edit: e.target.checked }))} /> edit</label>
+            <button onClick={addFlsRow} className="ml-auto px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg">Add rule</button>
           </div>
         </div>
-      )}
+
+        {flsRows.length === 0 ? (
+          <p className="text-xs text-slate-400">No rules — field is unrestricted.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {flsRows.map((r, i) => (
+              <div key={i} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg text-xs">
+                <span className="text-slate-700 min-w-0 truncate">{r.principal_type}: <b>{r.principal_id}</b> — {r.can_view ? 'view' : ''}{r.can_edit ? '+edit' : ''}{!r.can_view && !r.can_edit ? 'no access' : ''}</span>
+                <button onClick={() => setFlsRows(rows => rows.filter((_, j) => j !== i))} className="text-red-500 hover:text-red-700 flex-shrink-0">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
     </div>
   );
 }

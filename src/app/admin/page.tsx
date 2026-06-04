@@ -51,9 +51,15 @@ const GROUPS: NavGroup[] = [
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('users');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const active = TABS[activeTab];
   const activeGroup = GROUPS.find(g => g.tabs.includes(activeTab))!;
+
+  function selectTab(id: TabType) {
+    setActiveTab(id);
+    setSheetOpen(false);
+  }
 
   function toggleGroup(id: string) {
     setCollapsed(prev => {
@@ -66,25 +72,38 @@ export default function AdminPage() {
   return (
     <AppLayout pageTitle="Admin Management" breadcrumb="Admin" requiredPermission="admin_panel">
       <div className="flex flex-col min-h-0 flex-1">
-        {/* Page header */}
-        <div className="px-8 py-6 border-b border-slate-200 bg-white">
+        {/* Page header (compact on mobile) */}
+        <div className="px-4 py-4 sm:px-8 sm:py-6 border-b border-slate-200 bg-white">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
-              <Icon name="ShieldCheckIcon" size={22} className="text-purple-600" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Icon name="ShieldCheckIcon" size={20} className="text-purple-600" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Admin Management</h1>
-              <p className="text-sm text-slate-500">Super Admin control panel — organized by administrative domain</p>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl font-bold text-slate-900 truncate">Admin Management</h1>
+              <p className="hidden sm:block text-sm text-slate-500">Super Admin control panel — organized by administrative domain</p>
             </div>
           </div>
         </div>
 
+        {/* Mobile section selector (sticky) — opens a bottom sheet */}
+        <button
+          onClick={() => setSheetOpen(true)}
+          className="lg:hidden sticky top-0 z-20 w-full flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 text-left active:bg-slate-50"
+        >
+          <Icon name={active.icon as any} size={18} className="text-blue-600 flex-shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[11px] text-slate-400 leading-none">{activeGroup.label}</span>
+            <span className="block text-sm font-semibold text-slate-900 truncate">{active.label}</span>
+          </span>
+          <Icon name="ChevronUpDownIcon" size={18} className="text-slate-400 flex-shrink-0" />
+        </button>
+
         {/* Body: grouped secondary nav + content */}
         <div className="flex flex-col lg:flex-row flex-1 min-h-0">
-          {/* Secondary navigation (grouped, collapsible) */}
+          {/* Desktop grouped navigation (hidden on mobile — replaced by the bottom sheet) */}
           <nav
             aria-label="Admin sections"
-            className="w-full lg:w-64 lg:shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50/60 overflow-y-auto p-3 space-y-1"
+            className="hidden lg:block w-64 lg:shrink-0 border-r border-slate-200 bg-slate-50/60 overflow-y-auto p-3 space-y-1"
           >
             {GROUPS.map(group => {
               const isCollapsed = collapsed.has(group.id);
@@ -132,7 +151,7 @@ export default function AdminPage() {
           </nav>
 
           {/* Content */}
-          <div className={`flex-1 overflow-auto ${activeTab === 'permissions' ? 'p-6 flex flex-col' : 'p-8'}`}>
+          <div className={`flex-1 overflow-auto ${activeTab === 'permissions' ? 'p-4 sm:p-6 flex flex-col' : 'p-4 sm:p-6 lg:p-8'}`}>
             {/* Breadcrumb + description */}
             <div className="mb-5">
               <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
@@ -161,6 +180,69 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+
+      {/* Mobile bottom-sheet navigation */}
+      {sheetOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/50 animate-fade-in"
+            onClick={() => setSheetOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Admin sections"
+            className="absolute inset-x-0 bottom-0 max-h-[85vh] flex flex-col bg-white rounded-t-2xl shadow-2xl
+                       pb-[env(safe-area-inset-bottom)] animate-fade-in"
+          >
+            <div className="flex items-center justify-between px-5 pt-4 pb-2 flex-shrink-0">
+              <h2 className="text-sm font-bold text-slate-900">Admin Sections</h2>
+              <button
+                onClick={() => setSheetOpen(false)}
+                aria-label="Close"
+                className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
+              >
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+            <div className="mx-auto w-10 h-1 rounded-full bg-slate-200 mb-2 -mt-1" />
+            <div className="overflow-y-auto px-3 pb-4 space-y-4">
+              {GROUPS.map(group => (
+                <div key={group.id}>
+                  <div className="flex items-center gap-2 px-2 pb-1.5">
+                    <Icon name={group.icon as any} size={13} className="text-slate-400" />
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {group.tabs.map(tabId => {
+                      const tab = TABS[tabId];
+                      const isActive = activeTab === tabId;
+                      return (
+                        <button
+                          key={tabId}
+                          onClick={() => selectTab(tabId)}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`w-full flex items-center gap-3 px-3 min-h-[48px] rounded-xl text-left transition-colors ${
+                            isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-700 active:bg-slate-100'
+                          }`}
+                        >
+                          <Icon name={tab.icon as any} size={18} className="flex-shrink-0" />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm font-semibold truncate">{tab.label}</span>
+                            <span className="block text-[11px] text-slate-400 truncate">{tab.description}</span>
+                          </span>
+                          {isActive && <Icon name="CheckIcon" size={16} className="text-blue-600 flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

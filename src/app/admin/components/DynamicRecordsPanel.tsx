@@ -7,6 +7,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
+import Sheet from '@/components/ui/Sheet';
+import ResponsiveTable, { type Column } from '@/components/ui/ResponsiveTable';
 
 interface Field {
   id: string; api_name: string; label: string; field_type: string;
@@ -172,70 +174,64 @@ export default function DynamicRecordsPanel({ apiName, label }: { apiName: strin
             </div>
           )}
 
-          {loading ? <p className="text-xs text-slate-400">Loading records…</p> : records.length === 0 ? (
-            <p className="text-xs text-slate-400">No records yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left">
-                    {fields.slice(0, 5).map(f => <th key={f.id} className="px-2 py-2 font-semibold text-slate-600">{f.label}</th>)}
-                    <th className="px-2 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {records.map(r => (
-                    <tr key={r.id} className="hover:bg-slate-50">
-                      {fields.slice(0, 5).map(f => <td key={f.id} className="px-2 py-2 text-slate-700">{display(r.data[f.api_name])}</td>)}
-                      <td className="px-2 py-2 text-right whitespace-nowrap">
-                        <button onClick={() => openShares(r)} className="text-blue-600 hover:text-blue-800 mr-3">Share</button>
-                        <button onClick={() => del(r.id)} className="text-red-500 hover:text-red-700">Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {loading ? (
+            <div className="space-y-2.5" role="status" aria-label="Loading records">
+              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
             </div>
+          ) : (
+            (() => {
+              const cols: Column<Rec>[] = fields.slice(0, 5).map((f, i) => ({
+                key: f.id,
+                header: f.label,
+                primary: i === 0,
+                render: (r: Rec) => display(r.data[f.api_name]),
+              }));
+              return (
+                <ResponsiveTable
+                  columns={cols}
+                  rows={records}
+                  keyOf={(r) => r.id}
+                  emptyText="No records yet."
+                  actions={(r) => (
+                    <>
+                      <button onClick={() => openShares(r)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Share</button>
+                      <button onClick={() => del(r.id)} className="text-xs text-red-500 hover:text-red-700 font-medium">Delete</button>
+                    </>
+                  )}
+                />
+              );
+            })()
           )}
         </>
       )}
 
-      {/* Share modal */}
-      {shareRec && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShareRec(null)}>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-lg w-full p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-bold text-slate-800">Share record</h4>
-              <button onClick={() => setShareRec(null)} className="text-slate-400 hover:text-slate-700"><Icon name="XMarkIcon" size={16} /></button>
-            </div>
-
-            <div className="flex gap-2 mb-3 flex-wrap">
-              <select value={shareForm.principal_type} onChange={e => setShareForm(s => ({ ...s, principal_type: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
-                {['user', 'role', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input value={shareForm.principal_id} onChange={e => setShareForm(s => ({ ...s, principal_id: e.target.value }))} placeholder={shareForm.principal_type === 'user' ? 'email' : shareForm.principal_type === 'role_group' ? 'group id' : shareForm.principal_type} className="flex-1 min-w-[140px] text-xs border border-slate-200 rounded-lg px-2 py-1.5" />
-              <select value={shareForm.access_level} onChange={e => setShareForm(s => ({ ...s, access_level: e.target.value }))} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5">
-                {(accessLevels.length ? accessLevels : ['view', 'edit', 'full']).map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-              <button onClick={addShare} className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg">Share</button>
-            </div>
-
-            {shares.length === 0 ? <p className="text-xs text-slate-400">No shares yet. The owner and admins always have full access.</p> : (
-              <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                {shares.map(s => (
-                  <div key={s.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                    <div>
-                      <p className="text-xs font-medium text-slate-700">{s.principal_type}: {s.principal_id}</p>
-                      <p className="text-[11px] text-slate-400">{s.access_level}</p>
-                    </div>
-                    <button onClick={() => removeShare(s.id)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+      {/* Share sheet (bottom sheet on mobile, dialog on desktop) */}
+      <Sheet open={!!shareRec} onClose={() => setShareRec(null)} title="Share record">
+        <div className="flex flex-col sm:flex-row gap-2 mb-3">
+          <select value={shareForm.principal_type} onChange={e => setShareForm(s => ({ ...s, principal_type: e.target.value }))} className="text-sm border border-slate-200 rounded-lg px-2 py-2">
+            {['user', 'role', 'role_group', 'department'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input value={shareForm.principal_id} onChange={e => setShareForm(s => ({ ...s, principal_id: e.target.value }))} placeholder={shareForm.principal_type === 'user' ? 'email' : shareForm.principal_type === 'role_group' ? 'group id' : shareForm.principal_type} className="flex-1 min-w-0 text-sm border border-slate-200 rounded-lg px-3 py-2" />
+          <select value={shareForm.access_level} onChange={e => setShareForm(s => ({ ...s, access_level: e.target.value }))} className="text-sm border border-slate-200 rounded-lg px-2 py-2">
+            {(accessLevels.length ? accessLevels : ['view', 'edit', 'full']).map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <button onClick={addShare} className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg">Share</button>
         </div>
-      )}
+
+        {shares.length === 0 ? <p className="text-xs text-slate-400">No shares yet. The owner and admins always have full access.</p> : (
+          <div className="space-y-1.5">
+            {shares.map(s => (
+              <div key={s.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-700 truncate">{s.principal_type}: {s.principal_id}</p>
+                  <p className="text-[11px] text-slate-400">{s.access_level}</p>
+                </div>
+                <button onClick={() => removeShare(s.id)} className="text-xs text-red-500 hover:text-red-700 font-medium flex-shrink-0">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
     </div>
   );
 }

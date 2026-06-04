@@ -42,9 +42,11 @@ function relativeTime(iso: string): string {
 interface TopbarProps {
   pageTitle: string;
   breadcrumb?: string;
+  /** Opens the mobile navigation drawer (hamburger). */
+  onOpenMobileNav?: () => void;
 }
 
-export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
+export default function Topbar({ pageTitle, breadcrumb, onOpenMobileNav }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const notifRef = useRef<HTMLDivElement>(null);
@@ -63,17 +65,26 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
   }, []);
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 z-30">
-      {/* Left: Page title */}
-      <div>
-        {breadcrumb && (
-          <p className="text-xs text-slate-400 font-medium mb-0.5">{breadcrumb}</p>
-        )}
-        <h1 className="text-lg font-semibold text-slate-900">{pageTitle}</h1>
+    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-30 gap-2">
+      {/* Left: hamburger (mobile) + page title */}
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          onClick={onOpenMobileNav}
+          aria-label="Open navigation menu"
+          className="lg:hidden flex items-center justify-center h-11 w-11 -ml-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0"
+        >
+          <Icon name="Bars3Icon" size={22} />
+        </button>
+        <div className="min-w-0">
+          {breadcrumb && (
+            <p className="text-xs text-slate-400 font-medium mb-0.5 truncate">{breadcrumb}</p>
+          )}
+          <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">{pageTitle}</h1>
+        </div>
       </div>
 
       {/* Right: Search + Actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
         {/* Check-in/Check-out Button - COMMENTED OUT (feature not displayed)
         <div className="hidden md:block border-r border-slate-200 pr-4">
           <CheckinCheckoutButton />
@@ -109,7 +120,7 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-xl border border-slate-200 shadow-dropdown z-50 animate-fade-in overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-[min(24rem,calc(100vw-1rem))] bg-white rounded-xl border border-slate-200 shadow-dropdown z-50 animate-fade-in overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
@@ -161,8 +172,8 @@ export default function Topbar({ pageTitle, breadcrumb }: TopbarProps) {
           )}
         </div>
 
-        {/* Help */}
-        <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors" aria-label="Help">
+        {/* Help (hidden on the smallest screens to reduce header crowding) */}
+        <button className="hidden sm:flex w-9 h-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors" aria-label="Help">
           <Icon name="QuestionMarkCircleIcon" size={18} />
         </button>
 

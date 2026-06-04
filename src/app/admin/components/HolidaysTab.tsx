@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
+import ResponsiveTable from '@/components/ui/ResponsiveTable';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -295,70 +296,48 @@ function HolidaysPanel() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {/* Table / cards */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 sm:p-0 sm:overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center">
-            <Icon name="ArrowPathIcon" size={20} className="animate-spin mx-auto text-blue-600" />
+          <div className="p-3 sm:p-4 space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
           </div>
-        ) : holidays.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">No holidays found</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                {['Holiday', 'Date', 'Type', 'Recurring', 'Policies', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {holidays.map(h => (
-                <tr key={h.id} className={`hover:bg-slate-50 ${h.is_archived ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{h.name}</p>
-                    {h.description && <p className="text-xs text-slate-400">{h.description}</p>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                    {new Date(h.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border ${HOLIDAY_TYPE_COLORS[h.holiday_type]}`}>
-                      {h.holiday_type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {h.is_recurring ? '✓ Yes' : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    {(h.policy_names || []).length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {h.policy_names!.map(p => (
-                          <span key={p} className="px-1.5 py-0.5 text-[10px] bg-blue-50 text-blue-700 rounded">{p}</span>
-                        ))}
-                      </div>
-                    ) : <span className="text-slate-400 text-xs">None</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {!h.is_archived && (
-                        <>
-                          <button onClick={() => openEdit(h)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
-                          <button onClick={() => archive(h.id)} disabled={deleting === h.id}
-                            className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
-                            {deleting === h.id ? '…' : 'Archive'}
-                          </button>
-                        </>
-                      )}
-                      {h.is_archived && (
-                        <button onClick={() => restore(h.id)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Restore</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ResponsiveTable
+            rows={holidays}
+            keyOf={(h) => h.id}
+            emptyText="No holidays found"
+            columns={[
+              { key: 'name', header: 'Holiday', primary: true, render: (h) => (
+                <span className={h.is_archived ? 'opacity-50' : ''}>
+                  <span className="font-medium text-slate-800">{h.name}</span>
+                  {h.description && <span className="block text-xs text-slate-400">{h.description}</span>}
+                </span>
+              )},
+              { key: 'date', header: 'Date', render: (h) => new Date(h.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) },
+              { key: 'type', header: 'Type', render: (h) => (
+                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border ${HOLIDAY_TYPE_COLORS[h.holiday_type]}`}>{h.holiday_type}</span>
+              )},
+              { key: 'recurring', header: 'Recurring', render: (h) => (h.is_recurring ? '✓ Yes' : '—') },
+              { key: 'policies', header: 'Policies', render: (h) => (
+                (h.policy_names || []).length > 0
+                  ? <span className="inline-flex flex-wrap gap-1 justify-end">{h.policy_names!.map(p => <span key={p} className="px-1.5 py-0.5 text-[10px] bg-blue-50 text-blue-700 rounded">{p}</span>)}</span>
+                  : <span className="text-slate-400 text-xs">None</span>
+              )},
+            ]}
+            actions={(h) => (
+              !h.is_archived ? (
+                <>
+                  <button onClick={() => openEdit(h)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
+                  <button onClick={() => archive(h.id)} disabled={deleting === h.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
+                    {deleting === h.id ? '…' : 'Archive'}
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => restore(h.id)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Restore</button>
+              )
+            )}
+          />
         )}
       </div>
     </div>
@@ -484,55 +463,47 @@ function PoliciesPanel() {
         )}
 
         {loading ? (
-          <div className="p-8 text-center"><Icon name="ArrowPathIcon" size={20} className="animate-spin mx-auto text-blue-600" /></div>
-        ) : policies.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">No policies configured</div>
+          <div className="p-3 sm:p-4 space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                {['Policy', 'Holidays', 'Assigned To', 'Status', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {policies.map(p => (
-                <tr key={p.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-slate-800">{p.name}</p>
-                      {p.is_default && (
-                        <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded">DEFAULT</span>
-                      )}
-                    </div>
-                    {p.description && <p className="text-xs text-slate-400 mt-0.5">{p.description}</p>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{p.holiday_count}</td>
-                  <td className="px-4 py-3 text-slate-600">{p.assignment_count} scope(s)</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${p.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {p.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      {!p.is_default && (
-                        <button onClick={() => setDefault(p.id)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">
-                          Set Default
-                        </button>
-                      )}
-                      <button onClick={() => del(p.id)} disabled={deleting === p.id || p.is_default}
-                        title={p.is_default ? 'Cannot delete the default policy' : 'Delete'}
-                        className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                        {deleting === p.id ? '…' : 'Delete'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="p-3 sm:p-0">
+          <ResponsiveTable
+            rows={policies}
+            keyOf={(p) => p.id}
+            emptyText="No policies configured"
+            columns={[
+              { key: 'name', header: 'Policy', primary: true, render: (p) => (
+                <span>
+                  <span className="inline-flex items-center gap-2">
+                    <span className="font-medium text-slate-800">{p.name}</span>
+                    {p.is_default && <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded">DEFAULT</span>}
+                  </span>
+                  {p.description && <span className="block text-xs text-slate-400 mt-0.5">{p.description}</span>}
+                </span>
+              )},
+              { key: 'holidays', header: 'Holidays', render: (p) => p.holiday_count },
+              { key: 'assigned', header: 'Assigned To', render: (p) => `${p.assignment_count} scope(s)` },
+              { key: 'status', header: 'Status', render: (p) => (
+                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${p.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {p.is_active ? 'Active' : 'Inactive'}
+                </span>
+              )},
+            ]}
+            actions={(p) => (
+              <>
+                {!p.is_default && (
+                  <button onClick={() => setDefault(p.id)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Set Default</button>
+                )}
+                <button onClick={() => del(p.id)} disabled={deleting === p.id || p.is_default}
+                  title={p.is_default ? 'Cannot delete the default policy' : 'Delete'}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                  {deleting === p.id ? '…' : 'Delete'}
+                </button>
+              </>
+            )}
+          />
+          </div>
         )}
       </div>
     </div>

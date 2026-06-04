@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
+import Sheet from '@/components/ui/Sheet';
+import ResponsiveTable, { type Column } from '@/components/ui/ResponsiveTable';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface SystemUser {
@@ -116,19 +118,26 @@ function RoleChangeModal({ target, requesterTier, onClose, onSuccess }: RoleChan
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl border border-slate-200 max-w-lg w-full p-6 shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Icon name="UserCircleIcon" size={22} className="text-blue-600" />
-            Change Role
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-            <Icon name="XMarkIcon" size={20} />
+    <Sheet
+      open
+      onClose={onClose}
+      title="Change Role"
+      footer={
+        <>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">
+            Cancel
           </button>
-        </div>
-
+          <button
+            onClick={handleSave}
+            disabled={!hasChange || saving || isPrivEscalation}
+            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 flex items-center gap-2"
+          >
+            {saving && <Icon name="ArrowPathIcon" size={15} className="animate-spin" />}
+            {saving ? 'Saving…' : 'Confirm Change'}
+          </button>
+        </>
+      }
+    >
         {/* User info */}
         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg mb-5">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold ${avatarColor(target.email)}`}>
@@ -203,22 +212,7 @@ function RoleChangeModal({ target, requesterTier, onClose, onSuccess }: RoleChan
             </div>
           </div>
         )}
-
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!hasChange || saving || isPrivEscalation}
-            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 flex items-center gap-2"
-          >
-            {saving && <Icon name="ArrowPathIcon" size={15} className="animate-spin" />}
-            {saving ? 'Saving…' : 'Confirm Change'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -254,23 +248,13 @@ function DeactivateModal({ target, requesterTier, onClose, onSuccess }: Deactiva
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6 shadow-xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-            <Icon name="UserMinusIcon" size={20} className="text-red-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">Deactivate User</h3>
-            <p className="text-sm text-slate-500">This will block their login access.</p>
-          </div>
-        </div>
-        <p className="text-sm text-slate-700 mb-6">
-          Are you sure you want to deactivate{' '}
-          <strong>{target.full_name || target.email}</strong>?
-          They will no longer be able to sign in.
-        </p>
-        <div className="flex gap-3 justify-end">
+    <Sheet
+      open
+      onClose={onClose}
+      title="Deactivate User"
+      maxWidth="sm:max-w-md"
+      footer={
+        <>
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">
             Cancel
           </button>
@@ -282,9 +266,21 @@ function DeactivateModal({ target, requesterTier, onClose, onSuccess }: Deactiva
             {saving && <Icon name="ArrowPathIcon" size={15} className="animate-spin" />}
             Deactivate
           </button>
+        </>
+      }
+    >
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+          <Icon name="UserMinusIcon" size={20} className="text-red-600" />
         </div>
+        <p className="text-sm text-slate-500">This will block their login access.</p>
       </div>
-    </div>
+      <p className="text-sm text-slate-700">
+        Are you sure you want to deactivate{' '}
+        <strong>{target.full_name || target.email}</strong>?
+        They will no longer be able to sign in.
+      </p>
+    </Sheet>
   );
 }
 
@@ -409,90 +405,59 @@ export default function UsersTab() {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-5 py-3 text-left font-semibold text-slate-700">User</th>
-                  <th className="px-5 py-3 text-left font-semibold text-slate-700">Role</th>
-                  <th className="px-5 py-3 text-left font-semibold text-slate-700">Department</th>
-                  <th className="px-5 py-3 text-left font-semibold text-slate-700">Joined</th>
-                  <th className="px-5 py-3 text-right font-semibold text-slate-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {users.map(u => {
-                  const isCurrentUser = u.id === currentUser?.id;
-                  const isDeactivated = deactivatedIds.has(u.id);
-                  const canChange = canChangeRole(u);
-                  return (
-                    <tr
-                      key={u.id}
-                      className={`transition-colors hover:bg-slate-50 ${isDeactivated ? 'opacity-50' : ''}`}
-                    >
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${avatarColor(u.email)}`}>
-                            {initials(u)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-slate-900 flex items-center gap-1.5">
-                              {u.full_name || '—'}
-                              {isCurrentUser && (
-                                <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-600 rounded-full">You</span>
-                              )}
-                              {isDeactivated && (
-                                <span className="px-1.5 py-0.5 text-xs bg-red-100 text-red-600 rounded-full">Deactivated</span>
-                              )}
-                            </div>
-                            <div className="text-xs text-slate-400">{u.email}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${TIER_COLOR[u.tier] || TIER_COLOR[15]}`}>
-                          {u.role}
-                        </span>
-                        <span className="ml-2 text-xs text-slate-400">T{u.tier}</span>
-                      </td>
-                      <td className="px-5 py-3 text-slate-500">{u.department || '—'}</td>
-                      <td className="px-5 py-3 text-slate-500 text-xs">
-                        {u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          {canChange ? (
-                            <>
-                              <button
-                                onClick={() => setRoleModal(u)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
-                              >
-                                <Icon name="UserCircleIcon" size={13} />
-                                Change Role
-                              </button>
-                              {!isDeactivated && u.tier > 1 && (
-                                <button
-                                  onClick={() => setDeactivateModal(u)}
-                                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                  title="Deactivate user"
-                                >
-                                  <Icon name="UserMinusIcon" size={15} />
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-400 flex items-center gap-1">
-                              <Icon name="LockClosedIcon" size={13} />
-                              {isCurrentUser ? 'You' : 'Protected'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="p-3 sm:p-0">
+          <ResponsiveTable
+            rows={users}
+            keyOf={(u) => u.id}
+            columns={[
+              { key: 'user', header: 'User', primary: true, render: (u) => {
+                const isCurrentUser = u.id === currentUser?.id;
+                const isDeactivated = deactivatedIds.has(u.id);
+                return (
+                  <div className={`flex items-center gap-3 ${isDeactivated ? 'opacity-50' : ''}`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${avatarColor(u.email)}`}>{initials(u)}</div>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                        {u.full_name || '—'}
+                        {isCurrentUser && <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-600 rounded-full">You</span>}
+                        {isDeactivated && <span className="px-1.5 py-0.5 text-xs bg-red-100 text-red-600 rounded-full">Deactivated</span>}
+                      </div>
+                      <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                    </div>
+                  </div>
+                );
+              }},
+              { key: 'role', header: 'Role', render: (u) => (
+                <span className="inline-flex items-center gap-2">
+                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${TIER_COLOR[u.tier] || TIER_COLOR[15]}`}>{u.role}</span>
+                  <span className="text-xs text-slate-400">T{u.tier}</span>
+                </span>
+              )},
+              { key: 'dept', header: 'Department', render: (u) => u.department || '—' },
+              { key: 'joined', header: 'Joined', render: (u) => u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—' },
+            ]}
+            actions={(u) => {
+              const isCurrentUser = u.id === currentUser?.id;
+              const isDeactivated = deactivatedIds.has(u.id);
+              const canChange = canChangeRole(u);
+              return canChange ? (
+                <>
+                  <button onClick={() => setRoleModal(u)} className="px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1">
+                    <Icon name="UserCircleIcon" size={13} /> Change Role
+                  </button>
+                  {!isDeactivated && u.tier > 1 && (
+                    <button onClick={() => setDeactivateModal(u)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Deactivate user">
+                      <Icon name="UserMinusIcon" size={15} />
+                    </button>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-slate-400 flex items-center gap-1">
+                  <Icon name="LockClosedIcon" size={13} /> {isCurrentUser ? 'You' : 'Protected'}
+                </span>
+              );
+            }}
+          />
           </div>
         )}
       </div>
