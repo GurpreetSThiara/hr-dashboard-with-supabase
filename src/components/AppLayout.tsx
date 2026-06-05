@@ -6,6 +6,7 @@ import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import BottomNav from './BottomNav';
 import AuthGuard from './AuthGuard';
+import FloatingTimer from './time/FloatingTimer';
 import { Permission } from '@/lib/useRoleBasedAccess';
 
 interface AppLayoutProps {
@@ -78,6 +79,9 @@ export default function AppLayout({ children, pageTitle, breadcrumb, requiredPer
 
         {/* Mobile bottom navigation */}
         <BottomNav onOpenMenu={() => setMobileNavOpen(true)} />
+
+        {/* Persistent timer (visible app-wide while a timer runs) */}
+        <FloatingTimer />
       </div>
     </AuthGuard>
   );

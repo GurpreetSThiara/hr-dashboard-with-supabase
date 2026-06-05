@@ -15,11 +15,12 @@ import AdminAuditTab from './components/AdminAuditTab';
 import AccessControlTab from './components/AccessControlTab';
 import CustomObjectsTab from './components/CustomObjectsTab';
 import StandardObjectsTab from './components/StandardObjectsTab';
+import TimeTrackingAdminTab from './components/TimeTrackingAdminTab';
 
 type TabType =
   | 'users' | 'permissions' | 'access-control' | 'standard-objects' | 'custom-objects'
   | 'policies' | 'holidays' | 'checkin' | 'attendance-settings' | 'hierarchy'
-  | 'leave-permissions' | 'audit';
+  | 'leave-permissions' | 'time-tracking' | 'audit';
 
 interface TabMeta { id: TabType; label: string; icon: string; description: string; }
 
@@ -35,6 +36,7 @@ const TABS: Record<TabType, TabMeta> = {
   'holidays':           { id: 'holidays',           label: 'Holiday Management',  icon: 'SunIcon',                   description: 'Configure company holidays, optional holidays, and holiday policies' },
   'checkin':            { id: 'checkin',            label: 'Attendance Logs',     icon: 'ClockIcon',                 description: 'View employee check-in / check-out history' },
   'attendance-settings':{ id: 'attendance-settings',label: 'Attendance Settings', icon: 'Cog6ToothIcon',             description: 'Configure global attendance rules, allowed check-in roles, and regularization limits' },
+  'time-tracking':      { id: 'time-tracking',      label: 'Time Tracking',       icon: 'ClockIcon',                 description: 'Manage clients, projects, tasks, and billing rates for time tracking' },
   'audit':              { id: 'audit',              label: 'Audit Log',           icon: 'ClipboardDocumentListIcon', description: 'Immutable trail of every privileged administrative action' },
 };
 
@@ -44,7 +46,7 @@ interface NavGroup { id: string; label: string; icon: string; tabs: TabType[]; }
 const GROUPS: NavGroup[] = [
   { id: 'data-model',  label: 'Data Model',             icon: 'CircleStackIcon',    tabs: ['standard-objects', 'custom-objects'] },
   { id: 'access',      label: 'User & Access',          icon: 'UserGroupIcon',      tabs: ['users', 'permissions', 'access-control', 'leave-permissions', 'hierarchy'] },
-  { id: 'operations',  label: 'Leave & Attendance',     icon: 'CalendarDaysIcon',   tabs: ['policies', 'holidays', 'checkin', 'attendance-settings'] },
+  { id: 'operations',  label: 'Leave & Attendance',     icon: 'CalendarDaysIcon',   tabs: ['policies', 'holidays', 'checkin', 'attendance-settings', 'time-tracking'] },
   { id: 'monitoring',  label: 'Monitoring & Operations', icon: 'ChartBarSquareIcon', tabs: ['audit'] },
 ];
 
@@ -177,6 +179,7 @@ export default function AdminPage() {
             {activeTab === 'access-control'      && <AccessControlTab />}
             {activeTab === 'standard-objects'    && <StandardObjectsTab />}
             {activeTab === 'custom-objects'      && <CustomObjectsTab />}
+            {activeTab === 'time-tracking'       && <TimeTrackingAdminTab />}
           </div>
         </div>
       </div>

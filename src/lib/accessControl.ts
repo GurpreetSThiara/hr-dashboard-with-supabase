@@ -17,6 +17,8 @@ export const KNOWN_PERMISSIONS = [
   'view_dashboard', 'view_hr_dashboard', 'view_employees', 'manage_employees',
   'view_leaves', 'approve_leaves', 'manage_policies', 'view_attendance',
   'manage_attendance', 'view_hierarchy', 'manage_hierarchy', 'admin_panel',
+  'view_time_tracking', 'manage_own_time', 'approve_time', 'view_time_reports',
+  'manage_time_admin',
 ] as const;
 export type PermissionKey = (typeof KNOWN_PERMISSIONS)[number];
 
@@ -35,6 +37,12 @@ const DEFAULT_PERMISSIONS: Record<string, number[]> = {
   view_hierarchy:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
   manage_hierarchy: [1,2,3,4],
   admin_panel:      [1,2],
+  // Time tracking
+  view_time_tracking: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],
+  manage_own_time:    [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],
+  approve_time:       [1,2,3,4,5,6,12,13,14],
+  view_time_reports:  [1,2,3,4,5,8,9,12,13],
+  manage_time_admin:  [1,2,3],
 };
 
 /** Load the active tier→permission matrix from DB, falling back to defaults. */

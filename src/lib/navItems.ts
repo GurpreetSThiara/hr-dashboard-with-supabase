@@ -17,6 +17,7 @@ export const NAV_ITEMS: NavItemWithRole[] = [
   { id: 'nav-team',         label: 'Team',             icon: 'UsersIcon',          href: '/employee-management',  section: 'PEOPLE',     requiredPermission: 'view_employees' },
   { id: 'nav-organization', label: 'Organization',     icon: 'BuildingOffice2Icon',href: '/organization',         section: 'PEOPLE',     requiredPermission: 'view_dashboard' },
   { id: 'nav-leave',        label: 'Leave & Attendance',icon: 'CalendarDaysIcon',  href: '/leave-attendance',     section: 'OPERATIONS', requiredPermission: 'view_leaves' },
+  { id: 'nav-time',         label: 'Time Tracking',    icon: 'ClockIcon',          href: '/time-tracking',        section: 'OPERATIONS', requiredPermission: 'view_time_tracking' },
   { id: 'nav-admin',        label: 'Admin Management', icon: 'Cog6ToothIcon',      href: '/admin',                section: 'SYSTEM',     requiredPermission: 'admin_panel' },
 ];
 

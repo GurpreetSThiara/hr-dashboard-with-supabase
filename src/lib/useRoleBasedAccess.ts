@@ -12,7 +12,12 @@ export type Permission =
   | 'manage_attendance'
   | 'view_hierarchy'
   | 'manage_hierarchy'
-  | 'admin_panel';
+  | 'admin_panel'
+  | 'view_time_tracking'
+  | 'manage_own_time'
+  | 'approve_time'
+  | 'view_time_reports'
+  | 'manage_time_admin';
 
 // Role tier definitions (lower number = higher privilege)
 export const ROLE_TIERS: Record<string, number> = {
@@ -36,6 +41,11 @@ const DEFAULT_PERMISSIONS: Record<Permission, number[]> = {
   view_hierarchy:    [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
   manage_hierarchy:  [1,2,3,4],
   admin_panel:       [1,2],
+  view_time_tracking:[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],
+  manage_own_time:   [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],
+  approve_time:      [1,2,3,4,5,6,12,13,14],
+  view_time_reports: [1,2,3,4,5,8,9,12,13],
+  manage_time_admin: [1,2,3],
 };
 
 export function useRoleBasedAccess() {
