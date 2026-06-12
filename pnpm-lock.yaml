@@ -112,6 +112,52 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  super-owner-app:
+    dependencies:
+      '@supabase/ssr':
+        specifier: ^0.10.2
+        version: 0.10.2(@supabase/supabase-js@2.104.0)
+      '@supabase/supabase-js':
+        specifier: ^2.104.0
+        version: 2.104.0
+      next:
+        specifier: 15.1.11
+        version: 15.1.11(@babel/core@7.29.0)(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
+      pg:
+        specifier: ^8.21.0
+        version: 8.21.0
+      react:
+        specifier: 19.0.3
+        version: 19.0.3
+      react-dom:
+        specifier: 19.0.3
+        version: 19.0.3(react@19.0.3)
+      sonner:
+        specifier: ^1.7.4
+        version: 1.7.4(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.39
+      '@types/react':
+        specifier: 19.0.3
+        version: 19.0.3
+      '@types/react-dom':
+        specifier: 19.0.3
+        version: 19.0.3(@types/react@19.0.3)
+      autoprefixer:
+        specifier: 10.4.2
+        version: 10.4.2(postcss@8.4.8)
+      postcss:
+        specifier: 8.4.8
+        version: 8.4.8
+      tailwindcss:
+        specifier: 3.4.6
+        version: 3.4.6
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
 packages:
 
   '@alloc/quick-lru@5.2.0':

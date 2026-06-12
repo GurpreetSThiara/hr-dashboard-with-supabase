@@ -41,14 +41,18 @@ export default function Sidebar({ collapsed: collapsedProp, onToggle, mobile = f
   const pathname = usePathname();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const { hasPermission } = useRoleBasedAccess();
-  const { profile, user, role } = useAuth();
+  const { profile, user, role, enabledModules, isSuperOwner } = useAuth();
 
   // In mobile-drawer mode the sidebar is always fully expanded.
   const collapsed = mobile ? false : collapsedProp;
 
-  const visibleItems = NAV_ITEMS.filter(item =>
-    !item.requiredPermission || hasPermission(item.requiredPermission)
-  );
+  const moduleEnabled = (m?: string) =>
+    !m || isSuperOwner || enabledModules === null || enabledModules.includes(m);
+
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (item.requiredPermission && !hasPermission(item.requiredPermission)) return false;
+    return moduleEnabled(item.module);
+  });
 
   const userEmail = profile?.email || user?.email || '';
   const userName = profile?.full_name || (userEmail ? userEmail.split('@')[0] : 'User');

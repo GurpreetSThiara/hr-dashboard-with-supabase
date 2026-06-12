@@ -24,7 +24,7 @@ export default function OrganizationPage() {
   ];
 
   return (
-    <AppLayout pageTitle="Organization" breadcrumb="Company" requiredPermission="view_dashboard">
+    <AppLayout pageTitle="Organization" breadcrumb="Company" requiredPermission="view_dashboard" requiredModule="organization">
       <div className="flex gap-1 border-b border-slate-200 mb-6 overflow-x-auto">
         {TABS.filter((t) => t.show).map((t) => (
           <button

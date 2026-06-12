@@ -13,6 +13,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // F9: respect the platform-wide signups toggle controlled by the Super Owner.
+    const signupsEnabled = await withPgClient(async (client) => {
+      const res = await client
+        .query(`SELECT signups_enabled FROM platform_settings WHERE id = 'global'`)
+        .catch(() => ({ rows: [] as any[] }));
+      // Default to allowed if the settings table isn't present yet.
+      return res.rows.length === 0 ? true : res.rows[0].signups_enabled !== false;
+    });
+    if (!signupsEnabled) {
+      return NextResponse.json({ error: 'New sign-ups are currently disabled.' }, { status: 403 });
+    }
+
     // SECURITY: public self-registration ALWAYS creates a least-privileged
     // account. Role/tier from the request body are ignored to prevent
     // privilege escalation. Elevation must be done by an admin via

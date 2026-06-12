@@ -7,7 +7,10 @@ import Topbar from './Topbar';
 import BottomNav from './BottomNav';
 import AuthGuard from './AuthGuard';
 import FloatingTimer from './time/FloatingTimer';
+import TenantBanners from './TenantBanners';
+import ModuleLocked from './ModuleLocked';
 import { Permission } from '@/lib/useRoleBasedAccess';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -15,12 +18,20 @@ interface AppLayoutProps {
   breadcrumb?: string;
   /** If set, the page is gated behind this permission. */
   requiredPermission?: Permission;
+  /** If set, the page is gated behind this plan module (F27). */
+  requiredModule?: string;
 }
 
-export default function AppLayout({ children, pageTitle, breadcrumb, requiredPermission }: AppLayoutProps) {
+export default function AppLayout({ children, pageTitle, breadcrumb, requiredPermission, requiredModule }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
+  const { tenantContext, isSuperOwner } = useAuth();
+  const accent = tenantContext?.branding?.primaryColor || undefined;
+
+  // Module gate: only lock once context has loaded and the module is absent.
+  const moduleLocked = !!requiredModule && !isSuperOwner && !!tenantContext
+    && !tenantContext.modules.includes(requiredModule);
 
   // Close the mobile drawer on route change + lock body scroll while open.
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
@@ -33,6 +44,8 @@ export default function AppLayout({ children, pageTitle, breadcrumb, requiredPer
 
   return (
     <AuthGuard requiredPermission={requiredPermission}>
+      {/* Org branding accent strip (Super-Owner-controlled color). */}
+      {accent && <div className="fixed inset-x-0 top-0 z-50 h-1" style={{ backgroundColor: accent }} />}
       <div className="flex h-screen overflow-hidden bg-slate-50">
         {/* Desktop sidebar (in-flow, ≥ lg) */}
         <div className="hidden lg:flex">
@@ -72,7 +85,8 @@ export default function AppLayout({ children, pageTitle, breadcrumb, requiredPer
           <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
             {/* Bottom padding on mobile so content clears the bottom nav + safe area. */}
             <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-6">
-              {children}
+              <TenantBanners />
+              {moduleLocked ? <ModuleLocked module={requiredModule!} /> : children}
             </div>
           </main>
         </div>

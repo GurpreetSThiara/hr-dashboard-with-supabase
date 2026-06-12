@@ -10,6 +10,26 @@ interface UserProfile {
   role: string;
   tier: number;
   department: string | null;
+  /** Tenant the user belongs to. null = platform-level Super Owner. */
+  organization_id: string | null;
+  /** Derived: true for the global Super Owner (belongs to no organization). */
+  is_super_owner: boolean;
+}
+
+export interface TenantContext {
+  organizationId: string | null;
+  isSuperOwner: boolean;
+  status: string | null;
+  maintenanceMode: boolean;
+  active: boolean;
+  plan: { code: string | null; name: string | null };
+  modules: string[];
+  seat: { used: number; limit: number | null; remaining: number | null };
+  subscription: { endsAt: string | null; expired: boolean };
+  branding: { name: string | null; primaryColor: string | null; logoUrl: string | null };
+  announcements: Array<{ id: string; title: string; body: string | null; level: string }>;
+  featureFlags: string[];
+  platform: { supportEmail: string | null };
 }
 
 interface AuthContextValue {
@@ -22,6 +42,12 @@ interface AuthContextValue {
   customPermissions: Record<string, number[]> | null;
   /** Full effective permission keys (tier grants + permission-set grants). */
   effectivePermissions: string[] | null;
+  /** Module codes enabled by the org's plan. null = not loaded / don't gate. */
+  enabledModules: string[] | null;
+  /** Unified Super-Owner-controlled tenant context (status, seats, banners…). */
+  tenantContext: TenantContext | null;
+  /** True for the platform Super Owner (tier 0, no organization). */
+  isSuperOwner: boolean;
   refreshPermissions: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<any>;
@@ -37,7 +63,22 @@ export const useAuth = () => {
   return ctx;
 };
 
+/** F29: whether a Super-Owner-controlled global feature flag is enabled. */
+export const useFeatureFlag = (key: string): boolean => {
+  const { tenantContext } = useAuth();
+  return !!tenantContext?.featureFlags?.includes(key);
+};
+
+/** Convenience: whether the org's plan enables a module (Super Owner = all). */
+export const useHasModule = (code: string): boolean => {
+  const { tenantContext, isSuperOwner } = useAuth();
+  if (isSuperOwner) return true;
+  if (!tenantContext) return true; // not loaded yet → don't hide
+  return tenantContext.modules.includes(code);
+};
+
 const ROLE_TIER_MAP: Record<string, number> = {
+  'Super Owner': 0,
   'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
   'HR Executive': 6, 'Recruiter': 7, 'Payroll Manager': 8, 'Finance': 9,
   'Compliance': 10, 'IT Ops': 11, 'Director': 12, 'Manager': 13,
@@ -71,6 +112,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [customPermissions, setCustomPermissions] = useState<Record<string, number[]> | null>(null);
   const [effectivePermissions, setEffectivePermissions] = useState<string[] | null>(null);
+  const [enabledModules, setEnabledModules] = useState<string[] | null>(null);
+  const [tenantContext, setTenantContext] = useState<TenantContext | null>(null);
 
   // Helper: derive role + tier from profile / metadata / fallback
   const role = profile?.role || user?.user_metadata?.role || 'Employee';
@@ -80,7 +123,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const fetchProfile = useCallback(async (userId: string, userEmail?: string): Promise<UserProfile | null> => {
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, tier, department')
+      .select('id, email, full_name, role, tier, department, organization_id')
       .eq('id', userId)
       .maybeSingle();
 
@@ -94,9 +137,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         role: 'Employee',
         tier: 15,
         department: null,
+        organization_id: null,
+        is_super_owner: false,
       };
     }
-    return data as UserProfile;
+    return {
+      ...(data as any),
+      organization_id: (data as any).organization_id ?? null,
+      is_super_owner: (data as any).role === 'Super Owner',
+    } as UserProfile;
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -129,6 +178,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     } catch {
       // Non-fatal — falls back to tier matrix
+    }
+    // Unified tenant context: effective modules (plan ± overrides), org status,
+    // maintenance, seat usage, subscription expiry, announcements, branding.
+    // This keeps the HR app in sync with the Super Owner app.
+    try {
+      const ctxRes = await fetch('/api/me/context');
+      if (ctxRes.ok) {
+        const ctx = await ctxRes.json();
+        setTenantContext(ctx);
+        setEnabledModules(Array.isArray(ctx.modules) ? ctx.modules : null);
+      }
+    } catch {
+      // Non-fatal — null means "don't gate by module" (fail open to permission checks)
     }
   }, []);
 
@@ -219,6 +281,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     tier,
     customPermissions,
     effectivePermissions,
+    enabledModules,
+    tenantContext,
+    isSuperOwner: role === 'Super Owner',
     refreshPermissions: loadPermissions,
     refreshProfile,
     signIn,

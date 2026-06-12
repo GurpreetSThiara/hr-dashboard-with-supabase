@@ -54,7 +54,7 @@ export default function TimeTrackingPage() {
   ];
 
   return (
-    <AppLayout pageTitle="Time Tracking" breadcrumb="Time" requiredPermission="view_time_tracking">
+    <AppLayout pageTitle="Time Tracking" breadcrumb="Time" requiredPermission="view_time_tracking" requiredModule="time_tracking">
       <div className="space-y-6">
         <TimerBar onChange={bump} />
 

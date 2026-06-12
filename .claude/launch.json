@@ -2,10 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dev",
+      "name": "hr",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev", "-p", "3010"],
-      "port": 3010
+      "runtimeArgs": ["next", "dev", "-p", "3003"],
+      "port": 3003
+    },
+    {
+      "name": "super-owner",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "super-owner-app", "dev"],
+      "port": 3004
     }
   ]
 }

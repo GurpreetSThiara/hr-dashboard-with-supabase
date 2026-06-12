@@ -12,6 +12,7 @@ export default function HRDashboardPage() {
       pageTitle="HR Dashboard"
       breadcrumb="Overview"
       requiredPermission="view_hr_dashboard"
+      requiredModule="analytics"
     >
       <DashboardBentoGrid />
       <div className="mt-6 grid grid-cols-1 xl:grid-cols-3 gap-6">

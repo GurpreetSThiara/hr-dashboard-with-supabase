@@ -21,6 +21,10 @@ export interface ActorContext {
   email: string;
   role: string;
   employeeId: string | null;
+  /** Tenant the actor belongs to. NULL means a platform-level Super Owner. */
+  organizationId: string | null;
+  /** True for the global Super Owner (tier 0, belongs to no organization). */
+  isSuperOwner: boolean;
 }
 
 export type VisibilityScope = 'self' | 'direct_reports' | 'full_hierarchy' | 'department' | 'all';
@@ -45,18 +49,23 @@ export async function getActorFromRequest(
 
   return withPgClient(async (client) => {
     const res = await client.query(
-      `SELECT u.role, e.id AS employee_id
+      `SELECT u.role, u.organization_id, e.id AS employee_id
        FROM users u
-       LEFT JOIN employees e ON LOWER(e.email) = LOWER(u.email)
+       LEFT JOIN employees e
+         ON LOWER(e.email) = LOWER(u.email)
+        AND e.organization_id = u.organization_id
        WHERE u.id = $1`,
       [user.id]
     );
     const row = res.rows[0];
+    const role = row?.role ?? 'Employee';
     return {
       userId: user.id,
       email,
-      role: row?.role ?? 'Employee',
+      role,
       employeeId: row?.employee_id ?? null,
+      organizationId: row?.organization_id ?? null,
+      isSuperOwner: role === 'Super Owner',
     };
   });
 }

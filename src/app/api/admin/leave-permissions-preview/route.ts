@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     const data = await withPgClient(async (client) => {
       // Resolve user row
       const userRes = await client.query(
-        `SELECT u.id, u.role, e.id AS employee_id
+        `SELECT u.id, u.role, u.organization_id, e.id AS employee_id
          FROM users u
          LEFT JOIN employees e ON LOWER(e.email) = LOWER(u.email)
          WHERE LOWER(u.email) = $1`,
@@ -38,6 +38,8 @@ export async function GET(request: NextRequest) {
         email,
         role:       userRow.role ?? 'Employee',
         employeeId: userRow.employee_id ?? null,
+        organizationId: userRow.organization_id ?? null,
+        isSuperOwner: (userRow.role ?? 'Employee') === 'Super Owner',
       };
 
       // Visibility scope

@@ -1,5 +1,6 @@
 packages:
   - '.'
+  - 'super-owner-app'
 
 allowBuilds:
   sharp: true

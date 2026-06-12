@@ -21,6 +21,7 @@ export type Permission =
 
 // Role tier definitions (lower number = higher privilege)
 export const ROLE_TIERS: Record<string, number> = {
+  'Super Owner': 0,
   'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
   'HR Executive': 6, 'Recruiter': 7, 'Payroll Manager': 8, 'Finance': 9,
   'Compliance': 10, 'IT Ops': 11, 'Director': 12, 'Manager': 13,

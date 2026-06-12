@@ -17,7 +17,7 @@ export default function TeamPage() {
   const [activeTab, setActiveTab] = useState<TabType>('my-team');
 
   return (
-    <AppLayout pageTitle="Team" breadcrumb="People" requiredPermission="view_employees">
+    <AppLayout pageTitle="Team" breadcrumb="People" requiredPermission="view_employees" requiredModule="employees">
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 mb-6">
         <button

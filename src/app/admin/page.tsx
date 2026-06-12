@@ -72,7 +72,7 @@ export default function AdminPage() {
   }
 
   return (
-    <AppLayout pageTitle="Admin Management" breadcrumb="Admin" requiredPermission="admin_panel">
+    <AppLayout pageTitle="Admin Management" breadcrumb="Admin" requiredPermission="admin_panel" requiredModule="admin">
       <div className="flex flex-col min-h-0 flex-1">
         {/* Page header (compact on mobile) */}
         <div className="px-4 py-4 sm:px-8 sm:py-6 border-b border-slate-200 bg-white">

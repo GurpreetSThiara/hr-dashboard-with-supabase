@@ -13,6 +13,7 @@ import { getActorFromRequest, isHROrAbove, type ActorContext } from '@/lib/leave
 
 /** Canonical role → tier map (single source of truth, lower = more privileged). */
 export const ROLE_TIER_MAP: Record<string, number> = {
+  'Super Owner': 0,
   'Super Admin': 1, 'Owner': 2, 'Admin': 3, 'HR Admin': 4, 'HR Manager': 5,
   'HR Executive': 6, 'Recruiter': 7, 'Payroll Manager': 8, 'Finance': 9,
   'Compliance': 10, 'IT Ops': 11, 'Director': 12, 'Manager': 13,
@@ -64,6 +65,55 @@ export async function requireHR(request: NextRequest): Promise<AuthedActor> {
 /** admin_panel — Super Admin / Owner only (tier ≤ 2). */
 export async function requireAdmin(request: NextRequest): Promise<AuthedActor> {
   return requireMaxTier(request, 2);
+}
+
+/**
+ * Require that the actor's organization (a) is active (not suspended/archived
+ * and not past its subscription expiry) and (b) has the given module enabled —
+ * via its plan's modules PLUS any per-org overrides. Super Owner bypasses all
+ * gating. Throws 403 otherwise, 401 if unauthenticated.
+ *
+ * This is the API-level half of plan-based module access and stays in sync with
+ * the Super Owner app via computeOrgContext. The UI hides disabled modules;
+ * this guard prevents direct API calls from reaching them.
+ */
+export async function requireModule(
+  request: NextRequest,
+  moduleCode: string
+): Promise<AuthedActor> {
+  const actor = await requireAuth(request);
+  if (actor.isSuperOwner) return actor;
+  if (!actor.organizationId) {
+    throw new ApiAuthError('Forbidden — no organization context', 403);
+  }
+  const { computeOrgContext } = await import('@/lib/orgContext');
+  const ctx = await computeOrgContext(actor.organizationId, false);
+
+  if (ctx.status === 'suspended') throw new ApiAuthError('Organization is suspended', 403);
+  if (ctx.status === 'archived') throw new ApiAuthError('Organization is archived', 403);
+  if (ctx.subscription.expired) throw new ApiAuthError('Subscription has expired', 403);
+  if (!ctx.modules.includes(moduleCode)) {
+    throw new ApiAuthError(`Forbidden — module not enabled: ${moduleCode}`, 403);
+  }
+  return actor;
+}
+
+/**
+ * Guard for WRITE operations: rejects when the organization is in maintenance
+ * (read-only) mode, suspended, archived, or expired. Super Owner bypasses.
+ * Use on POST/PUT/PATCH/DELETE handlers in addition to requireModule.
+ */
+export async function requireWritable(request: NextRequest): Promise<AuthedActor> {
+  const actor = await requireAuth(request);
+  if (actor.isSuperOwner) return actor;
+  if (!actor.organizationId) throw new ApiAuthError('Forbidden — no organization context', 403);
+
+  const { computeOrgContext } = await import('@/lib/orgContext');
+  const ctx = await computeOrgContext(actor.organizationId, false);
+  if (ctx.status !== 'active') throw new ApiAuthError(`Organization is ${ctx.status}`, 403);
+  if (ctx.subscription.expired) throw new ApiAuthError('Subscription has expired', 403);
+  if (ctx.maintenanceMode) throw new ApiAuthError('Organization is in maintenance (read-only) mode', 423);
+  return actor;
 }
 
 /**

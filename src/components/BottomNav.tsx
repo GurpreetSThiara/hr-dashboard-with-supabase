@@ -10,13 +10,21 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import { useRoleBasedAccess } from '@/lib/useRoleBasedAccess';
+import { useAuth } from '@/contexts/AuthContext';
 import { NAV_ITEMS } from '@/lib/navItems';
 
 export default function BottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
   const { hasPermission } = useRoleBasedAccess();
+  const { enabledModules, isSuperOwner } = useAuth();
 
-  const visible = NAV_ITEMS.filter(i => !i.requiredPermission || hasPermission(i.requiredPermission));
+  const moduleEnabled = (m?: string) =>
+    !m || isSuperOwner || enabledModules === null || enabledModules.includes(m);
+
+  const visible = NAV_ITEMS.filter(i => {
+    if (i.requiredPermission && !hasPermission(i.requiredPermission)) return false;
+    return moduleEnabled(i.module);
+  });
   const primary = visible.slice(0, 4);
 
   return (

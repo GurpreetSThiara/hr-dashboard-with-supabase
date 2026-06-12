@@ -28,7 +28,7 @@ export default function LeaveAttendancePage() {
   }
 
   return (
-    <AppLayout pageTitle="Leave & Attendance" breadcrumb="Leave Management" requiredPermission="view_leaves">
+    <AppLayout pageTitle="Leave & Attendance" breadcrumb="Leave Management" requiredPermission="view_leaves" requiredModule="leave">
       <div className="space-y-6">
         {/* Tab Navigation + Apply Leave CTA */}
         <div className="flex overflow-x-auto items-center justify-between border-b border-slate-200 bg-white rounded-t-lg scrollbar-none pr-4">
